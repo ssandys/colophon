@@ -106,17 +106,17 @@ class ProcessorTest(unittest.TestCase):
 class ParseRfc3339Test(unittest.TestCase):
     def test_parses_an_offset_timestamp(self):
         self.assertEqual(
-            collect.parse_rfc3339("2026-08-10T12:00:00-05:00"), 1786726800)
+            collect.parse_rfc3339("2026-08-10T12:00:00-05:00"), 1786381200)
 
     def test_truncates_nine_digit_fractions(self):
         # Ollama emits nanosecond precision; fromisoformat accepts at most
         # microseconds, so an untruncated value raises instead of parsing.
         value = collect.parse_rfc3339("2026-08-10T12:00:00.123456789-05:00")
-        self.assertEqual(value, 1786726800)
+        self.assertEqual(value, 1786381200)
 
     def test_accepts_a_zulu_suffix(self):
         self.assertEqual(
-            collect.parse_rfc3339("2026-08-10T17:00:00Z"), 1786726800)
+            collect.parse_rfc3339("2026-08-10T17:00:00Z"), 1786381200)
 
     def test_the_zero_year_sentinel_is_none(self):
         # Ollama uses 0001-01-01 for "no expiry"; it is not a real time.
@@ -180,7 +180,7 @@ class NormalizeLoadedTest(unittest.TestCase):
         self.assertEqual(entry["parameterSize"], "3.2B")
         self.assertEqual(entry["quantization"], "Q4_K_M")
         self.assertEqual(entry["kind"], "generate")
-        self.assertEqual(entry["expiresAt"], 1786727100)
+        self.assertEqual(entry["expiresAt"], 1786381500)
 
     def test_an_empty_response_is_an_empty_list(self):
         self.assertEqual(collect.normalize_loaded({"models": []}), [])
