@@ -15,7 +15,7 @@ Panel {
   moduleName: "ssandys.colophon"
   ipcTarget: "ssandys.colophon"
 
-  readonly property string barIcon: ""
+  readonly property string barIcon: "\uF2DB"
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(fg, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : "JetBrainsMono Nerd Font"
@@ -343,59 +343,79 @@ Panel {
             Layout.leftMargin: Style.space(14)
           }
 
-          Repeater {
-            model: root.snap.loaded || []
+          // Capped and scrolling for the same reason the installed list is.
+          // KeyboardPanel clamps the CARD's height, but the Item holding its
+          // content neither clips nor scrolls, so an uncapped list pushes the
+          // sections below it -- and the footer -- off the visible card with no
+          // way to reach them. The installed list was protected and this one
+          // was not; both need it.
+          ScrollView {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(loadedColumn.implicitHeight,
+                                             Style.space(120))
+            clip: true
+            visible: (root.snap.loaded || []).length > 0
 
-            RowLayout {
-              Layout.fillWidth: true
-              Layout.leftMargin: Style.space(14)
-              spacing: Style.space(6)
+            ColumnLayout {
+              id: loadedColumn
+              width: parent.width
+              spacing: Style.space(2)
 
-              Text {
-                text: modelData.name
-                color: root.fg
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                Layout.fillWidth: true
-                elide: Text.ElideRight
-              }
+              Repeater {
+                model: root.snap.loaded || []
 
-              Text {
-                text: Model.formatBytes(modelData.sizeBytes)
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
+                RowLayout {
+                  Layout.fillWidth: true
+                  Layout.leftMargin: Style.space(14)
+                  spacing: Style.space(6)
 
-              Text {
-                text: Model.processorLabel(modelData)
-                color: modelData.processor === "gpu" ? "#22c55e" : root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
+                  Text {
+                    text: modelData.name
+                    color: root.fg
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                  }
 
-              Text {
-                visible: modelData.expiresAt !== null &&
-                         modelData.expiresAt !== undefined
-                text: Model.formatCountdown(
-                  Number(modelData.expiresAt) - service.nowSec)
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
+                  Text {
+                    text: Model.formatBytes(modelData.sizeBytes)
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
 
-              Button {
-                text: "✕"
-                foreground: "#ef4444"
-                tooltipText: "Unload this model, freeing its memory"
-                fontFamily: root.fontFamily
-                fontSize: Style.font.caption
-                horizontalPadding: Style.space(6)
-                verticalPadding: Style.space(2)
-                enabled: service.actionInProgress === ""
-                opacity: enabled ? 1.0 : 0.4
-                onClicked: service.runAction("unload", modelData.name,
-                                             modelData.kind)
+                  Text {
+                    text: Model.processorLabel(modelData)
+                    color: modelData.processor === "gpu" ? "#22c55e" : root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+
+                  Text {
+                    visible: modelData.expiresAt !== null &&
+                             modelData.expiresAt !== undefined
+                    text: Model.formatCountdown(
+                      Number(modelData.expiresAt) - service.nowSec)
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+
+                  Button {
+                    text: "✕"
+                    foreground: "#ef4444"
+                    tooltipText: "Unload this model, freeing its memory"
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(6)
+                    verticalPadding: Style.space(2)
+                    enabled: service.actionInProgress === ""
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: service.runAction("unload", modelData.name,
+                                                 modelData.kind)
+                  }
+                }
               }
             }
           }

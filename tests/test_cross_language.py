@@ -111,6 +111,29 @@ class ModelJsSyntaxTest(unittest.TestCase):
                     "unexpected top-level construct: " + stripped[:60])
 
 
+class BarGlyphTest(unittest.TestCase):
+    """The bar glyph must be a non-empty \\uXXXX escape, never a literal glyph.
+
+    U+F2DB is a Nerd Font codepoint in the Unicode Private Use Area, and PUA
+    characters do not survive every editing path. This project shipped a
+    Panel.qml whose barIcon was an empty string: it parsed cleanly, registered
+    its IPC handler, logged nothing, and rendered an invisible bar widget while
+    131 tests passed. Nothing else could have caught it. An escape is greppable,
+    diffable, and immune to the whole class of loss -- galley writes its glyph
+    the same way for the same reason.
+    """
+
+    def test_bar_icon_is_a_nonempty_escape(self):
+        match = re.search(r'property string barIcon:\s*"([^"]*)"', read("Panel.qml"))
+        self.assertIsNotNone(match, "Panel.qml declares no barIcon")
+        literal = match.group(1)
+        self.assertNotEqual(
+            literal, "", "barIcon is empty -- the bar renders nothing at all")
+        self.assertRegex(
+            literal, r"^\\u[0-9a-fA-F]{4}$",
+            "write barIcon as a \\uXXXX escape, not a literal glyph character")
+
+
 class ColorPaletteTest(unittest.TestCase):
     def hex_literals(self, text):
         return set(match.lower()
