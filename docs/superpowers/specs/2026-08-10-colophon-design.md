@@ -33,7 +33,7 @@ assumed. Several of them overturned an earlier design assumption.
 
 | Fact | Value | Consequence |
 |---|---|---|
-| `ollama` binary | `/usr/bin/ollama`, client `0.32.6` | `ollama --version` reports the client version **even with the server down** — the header is never blank |
+| `ollama` binary | `/usr/bin/ollama`, client `0.32.6` at spec time, upgraded to `0.32.7` mid-implementation (pacman, 2026-08-10 11:18) | `ollama --version` reports the client version **even with the server down** — the header is never blank. Nothing in the design keys off the version, so the upgrade changed nothing but these examples |
 | Unit | `/usr/lib/systemd/system/ollama.service`, `User=ollama` | It is a **system** unit; every lifecycle verb needs privilege. Galley needed none — `cupsdisable` worked unauthenticated |
 | Unit state | `disabled`, `inactive (dead)` | Not meant to run at boot. This is the usage signal behind "on-demand switch" |
 | polkit `manage-units` | `auth_admin_keep` | Start/stop/restart require authentication by default |
@@ -109,9 +109,13 @@ panel shows `starting…` until one process exits, with no QML state machine.
 
 Carried over from galley for the same reasons.
 
-1. **Python stays stdlib-only.** Permitted imports across both scripts: `json`,
-   `os`, `sys`, `glob`, `subprocess`, `shutil`, `urllib.request`,
-   `urllib.error`, `datetime`. No pip, ever — this is what lets the collector
+1. **Python stays stdlib-only.** Permitted imports across both scripts:
+   `datetime`, `glob`, `json`, `os`, `re`, `shlex`, `shutil`, `subprocess`,
+   `sys`, `time`, `urllib.error`, `urllib.request`. (`re`, `shlex`, and `time`
+   were added during implementation — `re` for the RFC 3339 fraction truncation
+   and the model-name validator, `shlex` for the unit's quoted `Environment=`,
+   `time` for the API timeout and the warm deadline. All stdlib, so the
+   no-pip invariant is intact.) No pip, ever — this is what lets the collector
    run with zero setup on a bare Omarchy install.
 2. **`Model.js` stays pure and QML-safe.** No I/O, no QML imports, no timers, no
    state between calls. It is loaded by `Panel.qml` (`import "Model.js" as
@@ -288,7 +292,7 @@ POST /api/generate  {"model": M, "keep_alive": 0}                       # unload
 POST /api/embed     {"model": M, "input": "", "keep_alive": ...}        # kind == "embed"
 ```
 
-**Verified against 0.32.6 on this machine, 2026-08-10.** All three claims held:
+**Verified against 0.32.7 on this machine, 2026-08-10.** (The table above records 0.32.6 because that was the installed version when this spec was written; pacman upgraded it to 0.32.7 at 11:18, before the verification ran. The idiom was therefore confirmed against 0.32.7.) All three claims held:
 a prompt-less `POST /api/generate` returns `done_reason: "load"` and the model
 then appears in `/api/ps`; `keep_alive: 0` returns `done_reason: "unload"` and
 `/api/ps` goes back to `{"models":[]}`; and `POST /api/generate` against
