@@ -1,0 +1,15 @@
+// Colophon: allow one user to start, stop, and restart exactly one unit
+// without a password. Installed by bin/install-privileges.
+//
+// This is deliberately as narrow as polkit can express: manage-units carries a
+// `unit` detail, so the grant names ollama.service and nothing else. The
+// enable/disable verbs go through manage-unit-files, which systemd invokes
+// with NO unit detail -- it cannot be scoped, so the boot toggle is not part
+// of this grant. See the design spec's phase-2 section.
+polkit.addRule(function (action, subject) {
+  if (subject.user !== "@USER@") return;
+  if (action.id === "org.freedesktop.systemd1.manage-units" &&
+      action.lookup("unit") === "ollama.service") {
+    return polkit.Result.YES;
+  }
+});
