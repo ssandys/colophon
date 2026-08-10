@@ -229,6 +229,49 @@ class ScanInstalledTest(unittest.TestCase):
         self.assertEqual(entries, [])
         self.assertEqual(unique_bytes, 0)
 
+    def test_a_manifest_that_parses_but_is_not_an_object_is_skipped(self):
+        # A truncated or corrupted write can parse cleanly as a JSON array.
+        # It must cost us that one model, not the whole inventory.
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "models")
+            shutil.copytree(os.path.join(FIXTURES, "models"), root)
+            bad = os.path.join(root, "manifests", "registry.ollama.ai",
+                               "library", "corrupt", "latest")
+            os.makedirs(os.path.dirname(bad), exist_ok=True)
+            with open(bad, "w") as handle:
+                handle.write("[1, 2, 3]")
+
+            entries, unique_bytes = collect.scan_installed(root)
+
+            names = [entry["name"] for entry in entries]
+            self.assertNotIn("corrupt:latest", names)
+            self.assertIn("llama3.2:3b", names)
+            self.assertGreaterEqual(len(entries), 9)
+            self.assertGreater(unique_bytes, 0)
+
+    def test_a_manifest_with_wrong_shaped_config_and_layers_is_survivable(self):
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "models")
+            shutil.copytree(os.path.join(FIXTURES, "models"), root)
+            bad = os.path.join(root, "manifests", "registry.ollama.ai",
+                               "library", "weird", "latest")
+            os.makedirs(os.path.dirname(bad), exist_ok=True)
+            with open(bad, "w") as handle:
+                json.dump({"config": "not-a-dict",
+                           "layers": ["also-not-a-dict", {"size": 5}]}, handle)
+
+            entries, unique_bytes = collect.scan_installed(root)
+
+            by_name = {entry["name"]: entry for entry in entries}
+            # It survives and is listed, counting only the one usable layer.
+            self.assertIn("weird:latest", by_name)
+            self.assertEqual(by_name["weird:latest"]["sizeBytes"], 5)
+            self.assertIn("llama3.2:3b", by_name)
+
 
 def names_of(entries):
     return [entry["name"] for entry in entries]

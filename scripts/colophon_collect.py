@@ -218,11 +218,20 @@ def normalize_loaded(payload):
 
 
 def _read_json(path):
+    """Read a JSON *object* from path, or None.
+
+    Returns None for anything that is not a dict. A truncated or corrupted
+    write can parse cleanly as a list, string, or number, and every caller
+    here wants a dict -- without this check one bad manifest raises
+    AttributeError and takes down the whole inventory instead of being
+    skipped.
+    """
     try:
         with open(path) as handle:
-            return json.load(handle)
+            payload = json.load(handle)
     except (OSError, ValueError):
         return None
+    return payload if isinstance(payload, dict) else None
 
 
 def scan_installed(root):
@@ -249,9 +258,17 @@ def scan_installed(root):
         namespace, name, tag = parts[-3], parts[-2], parts[-1]
 
         size = 0
-        config = manifest.get("config") or {}
-        layers = list(manifest.get("layers") or [])
+        # Each shape is checked rather than assumed: a corrupted manifest that
+        # still parses must cost us that one model, not the whole inventory.
+        config = manifest.get("config")
+        if not isinstance(config, dict):
+            config = {}
+        layers = manifest.get("layers")
+        if not isinstance(layers, list):
+            layers = []
         for layer in [config] + layers:
+            if not isinstance(layer, dict):
+                continue
             digest = layer.get("digest")
             layer_size = int(layer.get("size") or 0)
             size += layer_size
