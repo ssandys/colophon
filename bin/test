@@ -29,14 +29,23 @@ else
 fi
 
 echo "== python =="
-rc=0
-python3 -m unittest discover -s tests -t . -p 'test_*.py' -v || rc=$?
+python_rc=0
+python3 -m unittest discover -s tests -t . -p 'test_*.py' -v || python_rc=$?
 # 5 means "no tests collected" (Python 3.12+), which is valid only before the
 # first suite lands. Any other non-zero is a real failure.
-if [ "$rc" -ne 0 ] && [ "$rc" -ne 5 ]; then
-  exit "$rc"
+if [ "$python_rc" -eq 5 ]; then
+  echo "  no python tests collected yet"
+  python_rc=0
 fi
-[ "$rc" -eq 5 ] && echo "  no python tests collected yet"
 
 echo "== javascript =="
-if [ -f tests/model.test.js ]; then node --test tests/model.test.js; fi
+js_rc=0
+if [ -f tests/model.test.js ]; then node --test tests/model.test.js || js_rc=$?; fi
+
+# Both suites always run, and the exit code is decided here. Exiting early on a
+# Python failure -- as an earlier version did -- silently skipped the JS suite
+# entirely, so a JS regression could hide behind an unrelated Python one.
+if [ "$python_rc" -ne 0 ] || [ "$js_rc" -ne 0 ]; then
+  echo "FAILED: python=$python_rc javascript=$js_rc" >&2
+  exit 1
+fi
