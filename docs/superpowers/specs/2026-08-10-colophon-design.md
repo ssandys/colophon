@@ -337,17 +337,37 @@ touch — but `kill` is not inert, and none of it belongs in a grant whose state
 purpose is three verbs. The `verb` allow-list is what makes the description true.
 
 `bin/install-privileges` requires root, refuses to run if `$SUDO_USER` is unset
-(otherwise it would grant to `root`), and prints what it wrote. A `--check` mode
-verifies the grant **without starting anything**:
+(otherwise it would grant to `root`), and prints what it wrote.
 
-```bash
-pkcheck --action-id org.freedesktop.systemd1.manage-units \
-        --detail unit ollama.service --detail verb start --process $$
+### `--check` cannot use `pkcheck`
+
+**Corrected 2026-08-10, empirically.** Two earlier drafts of this section
+specified a `pkcheck`-based `--check` needing no root. That is not
+implementable. polkit refuses details from an unprivileged caller:
+
+```
+NotAuthorized: Only trusted callers (e.g. uid 0 or an action owner)
+can use CheckAuthorization() and pass details
 ```
 
-The `verb` detail in that query is required, not decorative: against a
-verb-scoped rule, a query that omits it does not match, so `--check` would report
-a correctly installed grant as missing.
+So `--check` is trapped: to match a detail-scoped rule it must pass `unit` and
+`verb` details, and passing details requires uid 0. A detail-less query cannot
+match the rule and merely reports the action's default. Running it as root does
+not help either — it would ask whether *root* is authorized, not the user.
+
+`--check` therefore **exercises the grant for real, using the verb that is a
+no-op for the unit's current state**: `stop` when the unit is already
+`inactive`, `start` when it is already `active`. The polkit check runs in
+earnest while the unit's state is unchanged. From any other state
+(`activating`, `deactivating`, `failed`) no verb is a safe no-op, so `--check`
+reports that it could not verify rather than probing.
+
+Verified on this machine after installing the rule, with the unit inactive:
+
+| Command | Result | What it proves |
+|---|---|---|
+| `systemctl --no-ask-password stop ollama.service` | exit 0, no prompt, still inactive | the grant works, and the probe is a true no-op |
+| `systemctl --no-ask-password freeze ollama.service` | refused: "requires interactive authentication" | the verb allow-list really excludes non-listed verbs, and the probe is sensitive to polkit rather than passing vacuously |
 
 **Why the boot toggle is not in the MVP.** `enable`/`disable` go through
 `org.freedesktop.systemd1.manage-unit-files`, a different action that systemd
@@ -359,9 +379,20 @@ and rejected for the MVP in favour of keeping the grant provably narrow. The
 panel therefore **reports** boot state from `UnitFileState` but cannot change
 it; the README gives the one-time `sudo systemctl enable ollama` command.
 
-Confidence in the no-unit-detail claim is high but it was not empirically
-proven. Verify it during implementation; if it is wrong, the narrow rule extends
-to cover the toggle and this restriction disappears.
+**Status of that claim, 2026-08-10: still unverified, and deliberately so.**
+Distinguishing "systemd passes no `unit` detail with `manage-unit-files`" from
+"a detail is passed but our rule does not cover that action" requires
+installing a temporary root-owned rule that *does* grant `manage-unit-files`
+scoped by unit, and seeing whether it matches. The cheap proxies cannot tell
+the two apart, and `pkcheck` is unavailable for this as an unprivileged caller
+for the reason given above. That test was judged not worth installing a
+deliberately over-broad rule on a working machine.
+
+The MVP decision does not depend on it. The installed grant demonstrably
+excludes everything outside its verb allow-list — `freeze` is refused while
+`stop` succeeds — so `enable`/`disable` are not reachable through it either
+way. If someone later wants the boot toggle, running that experiment is the
+first step, not a formality.
 
 ## UI
 
