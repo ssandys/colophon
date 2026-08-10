@@ -55,11 +55,6 @@ Item {
 
   property string pendingNotification: ""
 
-  // dataVersion as it stood when the action was issued. The settle ramp must
-  // not conclude anything from a status that predates the action -- see the
-  // comment in settleTimer.
-  property int actionDataVersion: 0
-
   signal serviceDied(string reason)
 
   function setting(key, fallback) {
@@ -138,7 +133,6 @@ Item {
     root.actionError = ""
     root.actionExited = false
     if (verb === "stop" || verb === "restart") root.expectedStop = true
-    root.actionDataVersion = root.dataVersion
 
     var optimistic = Model.optimisticStatusFor(verb)
     if (optimistic !== "") {
@@ -198,6 +192,20 @@ Item {
     // dropbox/Service.qml's settleTimer. After an action the unit takes a
     // variable second or two to settle, so re-poll rather than waiting for the
     // next scheduled tick.
+    //
+    // Deliberately NO early exit, after two distinct races were found in one.
+    // First: root.status here cannot reflect the refresh this same tick just
+    // spawned, because Process is asynchronous. Second: gating on
+    // `dataVersion > (version at action time)` is satisfied by ANY poll landing
+    // after the action -- including one already in flight whose data predates
+    // it. Both cleared expectedStop before the stop was ever observed, so the
+    // confirming poll fired a false "stopped unexpectedly" critical alert for a
+    // stop the user had just requested.
+    //
+    // Running the fixed tick count is what the dropbox precedent does and is
+    // race-free by construction: nothing is concluded from a status read at
+    // all. The early exit was saving at most five cheap polls, during seconds
+    // when the panel is open and already polling at 2s.
     id: settleTimer
     property int ticks: 0
     interval: 1000
@@ -206,18 +214,7 @@ Item {
     onTriggered: {
       settleTimer.ticks++
       root.refresh(true)
-      // refresh() above is ASYNCHRONOUS, so root.status here still reflects the
-      // previous poll -- it cannot yet know about the action. Concluding "not
-      // transient" from a pre-action status clears expectedStop before the stop
-      // is ever observed, and the confirming poll then fires a false "stopped
-      // unexpectedly" for a stop the user themselves requested. So require a
-      // snapshot taken AFTER the action to have landed before drawing any
-      // conclusion; the tick cap remains the backstop for a broken collector.
-      var settled = root.dataVersion > root.actionDataVersion
-      // isTransient, not transient: `transient` is a reserved word in QML's
-      // JS engine.
-      var isTransient = root.status === "starting" || root.status === "stopping"
-      if (settleTimer.ticks >= 6 || (settled && !isTransient)) {
+      if (settleTimer.ticks >= 6) {
         settleTimer.running = false
         settleTimer.ticks = 0
         root.optimisticStatus = ""
