@@ -1,0 +1,2 @@
+Warning: could not connect to a running Ollama instance
+Warning: client version is 0.32.7

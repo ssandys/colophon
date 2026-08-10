@@ -1,0 +1,9 @@
+LoadState=loaded
+ActiveState=active
+SubState=running
+UnitFileState=disabled
+Result=success
+NRestarts=0
+ExecMainStartTimestampMonotonic=31664288966
+MemoryCurrent=5247459328
+Environment=HOME=/var/lib/ollama OLLAMA_MODELS=/var/lib/ollama

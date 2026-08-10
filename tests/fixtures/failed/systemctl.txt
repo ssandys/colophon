@@ -1,0 +1,9 @@
+LoadState=loaded
+ActiveState=failed
+SubState=failed
+UnitFileState=disabled
+Result=exit-code
+NRestarts=2
+ExecMainStartTimestampMonotonic=0
+MemoryCurrent=[not set]
+Environment=HOME=/var/lib/ollama OLLAMA_MODELS=/var/lib/ollama

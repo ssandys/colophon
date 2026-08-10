@@ -1,0 +1,9 @@
+LoadState=not-found
+ActiveState=inactive
+SubState=dead
+UnitFileState=disabled
+Result=success
+NRestarts=0
+ExecMainStartTimestampMonotonic=0
+MemoryCurrent=[not set]
+Environment=HOME=/var/lib/ollama OLLAMA_MODELS=/var/lib/ollama
