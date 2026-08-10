@@ -104,8 +104,22 @@ Item {
     root.snapshot = next
     root.dataVersion++
 
-    // Reality caught up to the click -- stop overriding it.
-    if (root.optimisticStatus !== "" && root.status === root.optimisticStatus)
+    // The optimistic label exists only to bridge the gap between the click and
+    // the first poll after the action finishes. Once the action is done and any
+    // authoritative snapshot has landed, reality wins.
+    //
+    // Deliberately NOT "clear when status matches the optimistic value": that
+    // can never happen for start/stop/restart, because colophon_action.py
+    // blocks until systemd has settled, so activating/deactivating is already
+    // gone before we ever poll. Waiting for a match left the panel showing
+    // "stopping..." for the whole 6s ramp after the unit had actually stopped.
+    //
+    // Note this is a LOOSER rule than expectedStop's, on purpose: the two have
+    // opposite failure costs and must not share a clearing rule. Clearing
+    // expectedStop too early fires a false critical alert, so it holds until
+    // the ramp ends. Clearing optimisticStatus too early costs at most a ~1s
+    // flicker of the previous status, so it goes as soon as reality speaks.
+    if (root.optimisticStatus !== "" && root.actionInProgress === "")
       root.optimisticStatus = ""
 
     // Suppressed on the first snapshot, so shell startup is silent.
