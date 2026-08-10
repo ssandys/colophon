@@ -115,8 +115,14 @@ def post_json(url, body):
         # silently doing nothing.
         detail = ""
         try:
-            detail = error.read().decode("utf-8", "replace").strip()
-        except OSError:
+            with error:
+                detail = error.read().decode("utf-8", "replace").strip()
+        except (http.client.HTTPException, OSError):
+            # Reading the error body can itself hit IncompleteRead, which is
+            # an HTTPException and NOT an OSError -- the same gap that let a
+            # raw traceback escape api_get in the collector. `with error:`
+            # also makes sure the response is closed either way, instead of
+            # relying on garbage collection to do it.
             pass
         sys.stderr.write("colophon: " + url + " returned " + str(error.code)
                          + (": " + detail if detail else "") + "\n")
@@ -208,6 +214,20 @@ def main(argv):
     except (TypeError, ValueError):
         sys.stderr.write(
             "colophon_action: --keep-alive must be an integer\n")
+        return 2
+    # The manifest constrains this to 1-120 at the panel layer, but this script
+    # is the only surface that performs a write and does not get to assume the
+    # caller clamped. 0 is the specific trap: Ollama reads "0m" as unload
+    # immediately, the exact opposite of warm, and would do it silently.
+    if keep_alive_min < 1 or keep_alive_min > 120:
+        sys.stderr.write(
+            "colophon_action: --keep-alive must be between 1 and 120 minutes\n")
+        return 2
+    # A malformed base would otherwise fail api_reachable() like an ordinary
+    # refusal, and warm would go on to start the LOCAL unit because of it.
+    if not str(api_base).startswith(("http://", "https://")):
+        sys.stderr.write(
+            "colophon_action: --api-base must start with http:// or https://\n")
         return 2
 
     if verb in MODEL_VERBS:

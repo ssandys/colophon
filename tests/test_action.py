@@ -155,6 +155,87 @@ class ArgumentTest(unittest.TestCase):
                 result = run(["unload", good, "--dry-run"])
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_keep_alive_zero_is_rejected(self):
+        # "0m" means unload-immediately to Ollama -- the opposite of warm.
+        result = run(["warm", "x:1", "--keep-alive", "0", "--dry-run"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("between 1 and 120", result.stderr)
+
+    def test_a_negative_keep_alive_is_rejected(self):
+        result = run(["warm", "x:1", "--keep-alive", "-5", "--dry-run"])
+        self.assertEqual(result.returncode, 2)
+
+    def test_an_out_of_range_keep_alive_is_rejected(self):
+        result = run(["warm", "x:1", "--keep-alive", "121", "--dry-run"])
+        self.assertEqual(result.returncode, 2)
+
+    def test_the_range_boundaries_are_accepted(self):
+        for value in ("1", "120"):
+            with self.subTest(value=value):
+                result = run(["warm", "x:1", "--keep-alive", value, "--dry-run"])
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_malformed_api_base_is_rejected(self):
+        # Otherwise this fails api_reachable() like an ordinary refusal and
+        # warm starts the LOCAL unit because of a typo in an unrelated flag.
+        for bad in ["bogus", "127.0.0.1:11434", "ftp://x/y", ""]:
+            with self.subTest(api_base=bad):
+                result = run(["warm", "x:1", "--api-base", bad, "--dry-run"])
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("http://", result.stderr)
+
+    def test_a_well_formed_api_base_is_accepted(self):
+        for good in ["http://127.0.0.1:11434", "https://10.0.0.9:1234/"]:
+            with self.subTest(api_base=good):
+                result = run(["warm", "x:1", "--api-base", good, "--dry-run"])
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class PostJsonTest(unittest.TestCase):
+    def test_a_truncated_error_body_does_not_raise(self):
+        # A server that closes mid error-body raises http.client.IncompleteRead
+        # from error.read() itself, which is NOT an OSError. Uncaught, it lets
+        # a raw traceback escape instead of the clean exit-1 the rest of the
+        # error path gives -- the same gap that was fixed in api_get/api_reachable.
+        import http.server
+        import threading
+
+        class TruncatingError(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                self.rfile.read(length)
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "100")
+                self.end_headers()
+                self.wfile.write(b'{"error":"trunc')
+                self.wfile.flush()
+                self.close_connection = True
+
+            def log_message(self, *args):
+                pass  # keep test output pristine
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), TruncatingError)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            url = ("http://127.0.0.1:" + str(server.server_address[1])
+                   + "/api/generate")
+            # post_json writes its diagnostic straight to stderr (that is its
+            # contract when run via the CLI, where the caller captures it);
+            # swallow it here so calling it in-process keeps -v output clean.
+            import contextlib
+            import io
+            with contextlib.redirect_stderr(io.StringIO()):
+                code = action.post_json(
+                    url, {"model": "x:1", "keep_alive": "5m"})
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        self.assertEqual(code, 1)
+
 
 class BodyTest(unittest.TestCase):
     def test_generate_bodies_carry_no_input_field(self):
