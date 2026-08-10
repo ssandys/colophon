@@ -309,15 +309,32 @@ name interpolated:
 ```javascript
 polkit.addRule(function (action, subject) {
   if (subject.user !== "USER") return;
-  if (action.id === "org.freedesktop.systemd1.manage-units" &&
-      action.lookup("unit") === "ollama.service") {
+  if (action.id !== "org.freedesktop.systemd1.manage-units") return;
+  if (action.lookup("unit") !== "ollama.service") return;
+  var verb = action.lookup("verb");
+  if (verb === "start" || verb === "stop" || verb === "restart") {
     return polkit.Result.YES;
   }
 });
 ```
 
-`manage-units` carries a `unit` detail, so this grants exactly one user
-password-free start/stop/restart of exactly one unit, and nothing else.
+`manage-units` carries both a `unit` and a `verb` detail, so this grants exactly
+one user password-free start/stop/restart of exactly one unit, and nothing else.
+Every other path returns `undefined`, so the rule abstains rather than blocking —
+it never overrides a system default for anything it does not permit.
+
+**Correction, 2026-08-10.** An earlier draft of this section scoped by `unit`
+alone and claimed that was "as narrow as polkit can express." That was wrong, and
+a code review caught it before the rule was installed. `manage-units` is the
+single action gating *every* per-unit systemd D-Bus operation, so a unit-only
+rule also permits `kill` (an arbitrary signal to every process in the unit's
+cgroup), `set-property`, `reset-failed`, `freeze`/`thaw`, and `clean` on that
+unit. Verified on this machine: `clean` is inert here, because
+`StateDirectory`, `CacheDirectory`, `RuntimeDirectory`, `LogsDirectory`, and
+`ConfigurationDirectory` are all empty on `ollama.service` and the 19 GB model
+store is reachable only through `WorkingDirectory`, which `clean` does not
+touch — but `kill` is not inert, and none of it belongs in a grant whose stated
+purpose is three verbs. The `verb` allow-list is what makes the description true.
 
 `bin/install-privileges` requires root, refuses to run if `$SUDO_USER` is unset
 (otherwise it would grant to `root`), and prints what it wrote. A `--check` mode
@@ -325,8 +342,12 @@ verifies the grant **without starting anything**:
 
 ```bash
 pkcheck --action-id org.freedesktop.systemd1.manage-units \
-        --detail unit ollama.service --process $$
+        --detail unit ollama.service --detail verb start --process $$
 ```
+
+The `verb` detail in that query is required, not decorative: against a
+verb-scoped rule, a query that omits it does not match, so `--check` would report
+a correctly installed grant as missing.
 
 **Why the boot toggle is not in the MVP.** `enable`/`disable` go through
 `org.freedesktop.systemd1.manage-unit-files`, a different action that systemd
