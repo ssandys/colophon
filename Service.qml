@@ -20,7 +20,10 @@ Item {
   property string actionPath: ""
   property bool panelOpen: false
 
-  property var snapshot: Model.EMPTY_SNAPSHOT
+  // emptySnapshot(), not the EMPTY_SNAPSHOT constant: Model.js deliberately
+  // hands out a deep clone so a caller cannot corrupt the shared default for
+  // the process's lifetime, and there is a JS test guarding that.
+  property var snapshot: Model.emptySnapshot()
   property int dataVersion: 0
   property bool loading: false
   property string status: "stopped"
@@ -51,6 +54,11 @@ Item {
   property bool expectedStop: false
 
   property string pendingNotification: ""
+
+  // dataVersion as it stood when the action was issued. The settle ramp must
+  // not conclude anything from a status that predates the action -- see the
+  // comment in settleTimer.
+  property int actionDataVersion: 0
 
   signal serviceDied(string reason)
 
@@ -130,6 +138,7 @@ Item {
     root.actionError = ""
     root.actionExited = false
     if (verb === "stop" || verb === "restart") root.expectedStop = true
+    root.actionDataVersion = root.dataVersion
 
     var optimistic = Model.optimisticStatusFor(verb)
     if (optimistic !== "") {
@@ -197,8 +206,18 @@ Item {
     onTriggered: {
       settleTimer.ticks++
       root.refresh(true)
+      // refresh() above is ASYNCHRONOUS, so root.status here still reflects the
+      // previous poll -- it cannot yet know about the action. Concluding "not
+      // transient" from a pre-action status clears expectedStop before the stop
+      // is ever observed, and the confirming poll then fires a false "stopped
+      // unexpectedly" for a stop the user themselves requested. So require a
+      // snapshot taken AFTER the action to have landed before drawing any
+      // conclusion; the tick cap remains the backstop for a broken collector.
+      var settled = root.dataVersion > root.actionDataVersion
+      // isTransient, not transient: `transient` is a reserved word in QML's
+      // JS engine.
       var isTransient = root.status === "starting" || root.status === "stopping"
-      if (settleTimer.ticks >= 6 || !isTransient) {
+      if (settleTimer.ticks >= 6 || (settled && !isTransient)) {
         settleTimer.running = false
         settleTimer.ticks = 0
         root.optimisticStatus = ""
