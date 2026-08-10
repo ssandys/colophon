@@ -15,8 +15,12 @@ ACTION="org.freedesktop.systemd1.manage-units"
 check() {
   # pkcheck asks polkit the question without performing the action, so this
   # verifies the grant WITHOUT starting or stopping anything.
+  #
+  # The verb detail is required, not decorative: the rule scopes by verb, so a
+  # query omitting it does not match and would report a correctly installed
+  # grant as missing.
   if pkcheck --action-id "$ACTION" --detail unit ollama.service \
-       --process $$ >/dev/null 2>&1; then
+       --detail verb start --process $$ >/dev/null 2>&1; then
     echo "grant ok: $USER may manage ollama.service without a password"
     return 0
   fi
