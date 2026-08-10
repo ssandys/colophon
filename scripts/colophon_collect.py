@@ -297,3 +297,220 @@ def scan_installed(root):
 
     entries.sort(key=lambda entry: entry["name"])
     return (entries, sum(seen.values()))
+
+
+import subprocess
+import shutil
+import sys
+import time
+import urllib.error
+import urllib.request
+
+SCHEMA_VERSION = 1
+DEFAULT_API_BASE = "http://127.0.0.1:11434"
+SYSTEMCTL = "/usr/bin/systemctl"
+OLLAMA = "ollama"
+
+SHOW_TIMEOUT_SEC = 5
+API_TIMEOUT_SEC = 2
+VERSION_TIMEOUT_SEC = 3
+
+_VERSION_RE = re.compile(r"version is ([0-9][0-9A-Za-z.\-+]*)")
+
+
+class CollectError(Exception):
+    """A failure to find out, as distinct from a service that is merely down."""
+
+
+def uptime_seconds():
+    try:
+        with open("/proc/uptime") as handle:
+            return float(handle.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return 0.0
+
+
+def api_get(api_base, path, timeout):
+    """Returns (payload, latency_ms), or (None, None) if it did not answer."""
+    url = str(api_base).rstrip("/") + path
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return (None, None)
+    return (payload, int(round((time.monotonic() - started) * 1000)))
+
+
+def parse_client_version(text):
+    match = _VERSION_RE.search(str(text or ""))
+    return match.group(1) if match else None
+
+
+class LiveSource(object):
+    def __init__(self, api_base):
+        self.api_base = api_base
+        self._show = None
+
+    def show_text(self):
+        if self._show is not None:
+            return self._show
+        command = [SYSTEMCTL, "show", UNIT_NAME,
+                   "--property=" + ",".join(SHOW_PROPERTIES), "--no-pager"]
+        try:
+            completed = subprocess.run(command, capture_output=True, text=True,
+                                       timeout=SHOW_TIMEOUT_SEC)
+        except subprocess.TimeoutExpired:
+            raise CollectError("systemctl show timed out")
+        except OSError as error:
+            raise CollectError("could not run systemctl: " + str(error))
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or ("exit " +
+                                                 str(completed.returncode))
+            raise CollectError("systemctl show failed: " + detail)
+        self._show = completed.stdout
+        return self._show
+
+    def has_binary(self):
+        return shutil.which(OLLAMA) is not None
+
+    def api_version(self):
+        return api_get(self.api_base, "/api/version", API_TIMEOUT_SEC)
+
+    def api_ps(self):
+        payload, _ = api_get(self.api_base, "/api/ps", API_TIMEOUT_SEC)
+        return payload
+
+    def client_version(self):
+        binary = shutil.which(OLLAMA)
+        if not binary:
+            return None
+        try:
+            completed = subprocess.run([binary, "--version"],
+                                       capture_output=True, text=True,
+                                       timeout=VERSION_TIMEOUT_SEC)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        # `ollama --version` warns on stderr and reports the client version
+        # anyway, which is why this works with the server down.
+        return parse_client_version((completed.stdout or "") + " " +
+                                    (completed.stderr or ""))
+
+    def models_root(self, show):
+        return models_root(show)
+
+
+class FixtureSource(object):
+    """Replay a recorded state instead of touching systemd, the network, or
+    the real model store. Selected by COLOPHON_FIXTURE=<dir>.
+
+    The *absence* of version.json is the "API refused" signal, so a stopped
+    fixture is simply a directory without one rather than one carrying a
+    special marker.
+    """
+
+    def __init__(self, directory, api_base):
+        self.directory = directory
+        self.api_base = api_base
+
+    def _path(self, name):
+        return os.path.join(self.directory, name)
+
+    def show_text(self):
+        try:
+            with open(self._path("systemctl.txt")) as handle:
+                return handle.read()
+        except OSError:
+            raise CollectError(
+                "fixture has no systemctl.txt: " + str(self.directory))
+
+    def has_binary(self):
+        return not os.path.exists(self._path("no-binary"))
+
+    def api_version(self):
+        payload = _read_json(self._path("version.json"))
+        return (payload, 1) if payload is not None else (None, None)
+
+    def api_ps(self):
+        return _read_json(self._path("ps.json"))
+
+    def client_version(self):
+        try:
+            with open(self._path("ollama-version.txt")) as handle:
+                return parse_client_version(handle.read())
+        except OSError:
+            return None
+
+    def models_root(self, show):
+        # A state directory may carry its own tree; otherwise every state
+        # shares tests/fixtures/models, so the inventory is not duplicated
+        # once per state.
+        own = self._path("models")
+        if os.path.isdir(own):
+            return own
+        parent = os.path.dirname(str(self.directory).rstrip(os.sep))
+        return os.path.join(parent, "models")
+
+
+def collect(source, now_sec, uptime_sec):
+    show = parse_show(source.show_text())
+    unit = unit_from_show(show, uptime_sec, now_sec)
+
+    version_payload, latency = source.api_version()
+    reachable = version_payload is not None
+    server_version = (version_payload or {}).get("version") if reachable else None
+
+    status = resolve_status(unit, reachable, source.has_binary())
+    loaded = normalize_loaded(source.api_ps()) if reachable else []
+    installed, unique_bytes = scan_installed(source.models_root(show))
+
+    return {
+        "schema": SCHEMA_VERSION,
+        "status": status,
+        "error": None,
+        "unit": unit,
+        "api": {
+            "base": source.api_base,
+            "reachable": reachable,
+            "serverVersion": server_version,
+            "clientVersion": None if reachable else source.client_version(),
+            "latencyMs": latency,
+        },
+        "loaded": loaded,
+        "installed": installed,
+        "summary": {
+            "loadedCount": len(loaded),
+            "loadedBytes": sum(entry["sizeBytes"] for entry in loaded),
+            "installedCount": len(installed),
+            "installedBytes": unique_bytes,
+        },
+    }
+
+
+def main(argv):
+    api_base = DEFAULT_API_BASE
+    args = list(argv)
+    while args:
+        arg = args.pop(0)
+        if arg == "--api-base" and args:
+            api_base = args.pop(0)
+        else:
+            sys.stderr.write(
+                "colophon_collect: unknown argument '" + arg + "'\n")
+            return 2
+
+    fixture = os.environ.get("COLOPHON_FIXTURE", "")
+    source = (FixtureSource(fixture, api_base) if fixture
+              else LiveSource(api_base))
+    try:
+        snapshot = collect(source, time.time(), uptime_seconds())
+    except CollectError as error:
+        sys.stderr.write("colophon: " + str(error) + "\n")
+        return 1
+    json.dump(snapshot, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

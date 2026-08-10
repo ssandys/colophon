@@ -291,3 +291,129 @@ class UnitFromShowTest(unittest.TestCase):
     def test_non_numeric_restarts_degrade_to_zero(self):
         unit = collect.unit_from_show({"NRestarts": "[not set]"}, 1.0, 2.0)
         self.assertEqual(unit["nRestarts"], 0)
+
+
+import subprocess
+
+
+EXPECTED_STATUS = {
+    "running": "running",
+    "stopped": "stopped",
+    "starting": "starting",
+    "stopping": "stopping",
+    "failed": "failed",
+    "foreign": "foreign",
+    "missing": "missing",
+    # active with the API refused: the wedged case. Still `starting` -- the
+    # 15-second relabel that distinguishes it is presentation, in Model.js.
+    "wedged": "starting",
+}
+
+
+class FixtureReplayTest(unittest.TestCase):
+    def snapshot_for(self, state):
+        source = collect.FixtureSource(
+            os.path.join(FIXTURES, state), "http://127.0.0.1:11434")
+        return collect.collect(source, now_sec=5000.0, uptime_sec=1000.0)
+
+    def test_every_fixture_resolves_to_its_state(self):
+        for state, expected in EXPECTED_STATUS.items():
+            with self.subTest(state=state):
+                self.assertEqual(self.snapshot_for(state)["status"], expected)
+
+    def test_running_reports_a_server_version_and_no_client_version(self):
+        api = self.snapshot_for("running")["api"]
+        self.assertTrue(api["reachable"])
+        self.assertTrue(api["serverVersion"])
+        # The client version is only looked up when the API is silent, so the
+        # header never has to render a blank.
+        self.assertIsNone(api["clientVersion"])
+
+    def test_stopped_reports_a_client_version_and_no_server_version(self):
+        api = self.snapshot_for("stopped")["api"]
+        self.assertFalse(api["reachable"])
+        self.assertIsNone(api["serverVersion"])
+        self.assertTrue(api["clientVersion"])
+
+    def test_the_installed_list_survives_the_server_being_down(self):
+        # The whole reason the inventory is read from disk: a stopped panel is
+        # still informative.
+        snapshot = self.snapshot_for("stopped")
+        self.assertGreaterEqual(snapshot["summary"]["installedCount"], 9)
+        self.assertGreater(snapshot["summary"]["installedBytes"], 0)
+
+    def test_loaded_is_empty_whenever_the_api_is_silent(self):
+        for state in ("stopped", "failed", "missing", "starting", "wedged"):
+            with self.subTest(state=state):
+                snapshot = self.snapshot_for(state)
+                self.assertEqual(snapshot["loaded"], [])
+                self.assertEqual(snapshot["summary"]["loadedCount"], 0)
+
+    def test_failed_carries_its_reason_code(self):
+        # The failure *reason* is in the MVP via systemd's Result property;
+        # only the journal log text is deferred.
+        self.assertEqual(self.snapshot_for("failed")["unit"]["result"],
+                         "exit-code")
+
+    def test_foreign_has_a_live_api_and_an_inactive_unit(self):
+        snapshot = self.snapshot_for("foreign")
+        self.assertTrue(snapshot["api"]["reachable"])
+        self.assertEqual(snapshot["unit"]["activeState"], "inactive")
+
+    def test_every_snapshot_is_json_serialisable(self):
+        for state in EXPECTED_STATUS:
+            with self.subTest(state=state):
+                json.dumps(self.snapshot_for(state))
+
+    def test_summary_counts_match_the_lists(self):
+        for state in EXPECTED_STATUS:
+            with self.subTest(state=state):
+                snapshot = self.snapshot_for(state)
+                self.assertEqual(snapshot["summary"]["loadedCount"],
+                                 len(snapshot["loaded"]))
+                self.assertEqual(snapshot["summary"]["installedCount"],
+                                 len(snapshot["installed"]))
+
+    def test_a_fixture_without_systemctl_txt_is_an_error(self):
+        source = collect.FixtureSource(os.path.join(FIXTURES, "models"),
+                                       "http://127.0.0.1:11434")
+        with self.assertRaises(collect.CollectError):
+            collect.collect(source, now_sec=1.0, uptime_sec=1.0)
+
+
+class CommandLineTest(unittest.TestCase):
+    script = os.path.join(ROOT, "scripts", "colophon_collect.py")
+
+    def run_cli(self, state, extra=None):
+        env = dict(os.environ)
+        env["COLOPHON_FIXTURE"] = os.path.join(FIXTURES, state)
+        return subprocess.run(
+            ["python3", self.script] + (extra or []),
+            capture_output=True, text=True, env=env, timeout=20)
+
+    def test_prints_one_json_object_and_exits_zero(self):
+        result = self.run_cli("stopped")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "stopped")
+        self.assertEqual(payload["schema"], 1)
+
+    def test_api_base_is_echoed_into_the_snapshot(self):
+        result = self.run_cli("stopped", ["--api-base", "http://10.0.0.9:1234"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["api"]["base"],
+                         "http://10.0.0.9:1234")
+
+    def test_an_unknown_argument_exits_two(self):
+        result = self.run_cli("stopped", ["--wat"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unknown argument", result.stderr)
+
+    def test_a_broken_fixture_exits_one_with_a_message(self):
+        env = dict(os.environ)
+        env["COLOPHON_FIXTURE"] = "/nonexistent/fixture"
+        result = subprocess.run(["python3", self.script],
+                                capture_output=True, text=True, env=env,
+                                timeout=20)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("systemctl.txt", result.stderr)
