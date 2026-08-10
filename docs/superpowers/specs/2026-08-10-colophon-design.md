@@ -110,11 +110,14 @@ panel shows `starting…` until one process exits, with no QML state machine.
 Carried over from galley for the same reasons.
 
 1. **Python stays stdlib-only.** Permitted imports across both scripts:
-   `datetime`, `glob`, `json`, `os`, `re`, `shlex`, `shutil`, `subprocess`,
-   `sys`, `time`, `urllib.error`, `urllib.request`. (`re`, `shlex`, and `time`
+   `datetime`, `glob`, `http.client`, `json`, `os`, `re`, `shlex`, `shutil`,
+   `subprocess`, `sys`, `time`, `urllib.error`, `urllib.request`. (`re`, `shlex`, and `time`
    were added during implementation — `re` for the RFC 3339 fraction truncation
    and the model-name validator, `shlex` for the unit's quoted `Environment=`,
-   `time` for the API timeout and the warm deadline. All stdlib, so the
+   `time` for the API timeout and the warm deadline, `http.client` because
+   `IncompleteRead` -- what a server dying mid-response raises -- is not a
+   subclass of `OSError`, `URLError`, `ValueError`, or `TimeoutError`, so
+   catching it needs `http.client.HTTPException` explicitly. All stdlib, so the
    no-pip invariant is intact.) No pip, ever — this is what lets the collector
    run with zero setup on a bare Omarchy install.
 2. **`Model.js` stays pure and QML-safe.** No I/O, no QML imports, no timers, no
