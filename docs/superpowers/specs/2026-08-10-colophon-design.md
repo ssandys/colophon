@@ -262,7 +262,12 @@ collector stays honest.
 
 `scripts/colophon_action.py` always emits a fully-qualified, fixed-shape
 command — no shell, no globbing, and no user-interpolated argument except a
-model name validated against `^[A-Za-z0-9._:/-]+$`.
+model name validated against `^[A-Za-z0-9._:/-]+\Z`.
+
+`\Z` and not `$`: Python's `$` also matches just before a single trailing
+newline, so `"../../etc/passwd\n"` passed the `$` form of this validator while
+the design's own test expected it rejected. Found during implementation, on
+2026-08-10, by the test that was written to assert the rejection.
 
 | Verb | What it does | Privileged |
 |---|---|---|
