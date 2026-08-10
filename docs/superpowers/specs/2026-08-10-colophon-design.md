@@ -288,11 +288,12 @@ POST /api/generate  {"model": M, "keep_alive": 0}                       # unload
 POST /api/embed     {"model": M, "input": "", "keep_alive": ...}        # kind == "embed"
 ```
 
-This is from the API documentation and is **not** verified against 0.32.6 on
-this machine — verifying it requires starting the service, which requires the
-grant. **First implementation step:** confirm both calls and the
-`done_reason: "load"` response shape against the running server, and correct
-this section if they differ.
+**Verified against 0.32.6 on this machine, 2026-08-10.** All three claims held:
+a prompt-less `POST /api/generate` returns `done_reason: "load"` and the model
+then appears in `/api/ps`; `keep_alive: 0` returns `done_reason: "unload"` and
+`/api/ps` goes back to `{"models":[]}`; and `POST /api/generate` against
+`nomic-embed-text` **does** error while `POST /api/embed` succeeds for it. The
+two-endpoint routing below is therefore necessary, not defensive.
 
 Embedding models take `/api/embed`, not `/api/generate` (`nomic-embed-text` is
 installed here, so this is a live case, not a hypothetical). Routing uses the
