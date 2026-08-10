@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "ssandys.colophon",
+  "name": "Colophon",
+  "version": "0.1.0",
+  "author": "Sean Sandys",
+  "license": "MIT",
+  "description": "Ollama server status and control in the bar: start, stop, restart, loaded and installed models. Summon with: omarchy-shell shell toggle ssandys.colophon",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Panel.qml" },
+  "barWidget": {
+    "displayName": "Colophon",
+    "description": "Ollama server status, lifecycle control, and the model list",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "pollIntervalOpenSec": 2,
+      "pollIntervalRunningSec": 10,
+      "pollIntervalIdleSec": 30,
+      "keepAliveMinutes": 5,
+      "apiBase": "http://127.0.0.1:11434",
+      "showInstalledModels": true,
+      "notifyServiceDied": true
+    },
+    "schema": [
+      { "key": "pollIntervalOpenSec", "type": "integer", "label": "Poll interval while the panel is open (seconds)", "min": 1, "max": 30, "step": 1, "defaultValue": 2 },
+      { "key": "pollIntervalRunningSec", "type": "integer", "label": "Poll interval while the server is running (seconds)", "min": 5, "max": 120, "step": 5, "defaultValue": 10 },
+      { "key": "pollIntervalIdleSec", "type": "integer", "label": "Poll interval while the server is stopped (seconds)", "min": 5, "max": 300, "step": 5, "defaultValue": 30 },
+      { "key": "keepAliveMinutes", "type": "integer", "label": "Keep a warmed model loaded for (minutes)", "min": 1, "max": 120, "step": 1, "defaultValue": 5 },
+      { "key": "apiBase", "type": "string", "label": "Ollama API base URL", "defaultValue": "http://127.0.0.1:11434" },
+      { "key": "showInstalledModels", "type": "boolean", "label": "Show the installed model list", "defaultValue": true },
+      { "key": "notifyServiceDied", "type": "boolean", "label": "Notify when the service dies unexpectedly", "defaultValue": true }
+    ]
+  }
+}
