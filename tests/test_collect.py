@@ -417,3 +417,41 @@ class CommandLineTest(unittest.TestCase):
                                 timeout=20)
         self.assertEqual(result.returncode, 1)
         self.assertIn("systemctl.txt", result.stderr)
+
+
+class ApiGetFailureTest(unittest.TestCase):
+    def test_a_truncated_response_does_not_raise(self):
+        # A server that dies mid-response raises http.client.IncompleteRead,
+        # which is NOT an OSError/URLError/ValueError/TimeoutError. Uncaught,
+        # it exits with a traceback that Service.qml would paste into the
+        # panel's error strip.
+        import http.server
+        import threading
+
+        class Truncating(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", "100")
+                self.end_headers()
+                self.wfile.write(b'{"version":"0.')
+                self.wfile.flush()
+                self.close_connection = True
+
+            def log_message(self, *args):
+                pass  # keep test output pristine
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Truncating)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            base = "http://127.0.0.1:" + str(server.server_address[1])
+            payload, latency = collect.api_get(base, "/api/version", 2)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        # Treated as "did not answer", exactly like a refused connection.
+        self.assertIsNone(payload)
+        self.assertIsNone(latency)

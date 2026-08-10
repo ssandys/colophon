@@ -299,6 +299,7 @@ def scan_installed(root):
     return (entries, sum(seen.values()))
 
 
+import http.client
 import subprocess
 import shutil
 import sys
@@ -337,7 +338,8 @@ def api_get(api_base, path, timeout):
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+    except (urllib.error.URLError, http.client.HTTPException, OSError,
+            ValueError, TimeoutError):
         return (None, None)
     return (payload, int(round((time.monotonic() - started) * 1000)))
 
