@@ -1,0 +1,285 @@
+// Pure presentation helpers for Colophon.
+//
+// Loaded by Panel.qml (import "Model.js" as Model) AND by node --test, and the
+// two engines do not accept the same syntax. So: no I/O, no QML imports, no
+// timers, no state between calls, and everything at top level is `var` or
+// `function`. Never introduce arrow functions, spread, template literals,
+// let/const, Object.assign, .includes( or .endsWith( in this file. The test
+// file is exempt -- it only ever runs under node.
+
+var COLOR_OK = "#22c55e"
+var COLOR_WARN = "#eab308"
+var COLOR_ERROR = "#ef4444"
+var COLOR_BUSY = "#3b82f6"
+
+var BADGE_MAX = 9
+
+// How long `starting` may persist before the label admits the server is not
+// coming up. Presentation only: the collector keeps reporting `starting`,
+// because "active but not answering" is genuinely all systemd knows.
+var STARTING_RELABEL_SEC = 15
+
+// Must stay equal to colophon_collect.STATUSES; tests/test_cross_language.py
+// diffs the two sets, because a one-sided edit fails silently.
+var STATUSES = ["running", "starting", "stopping", "stopped", "failed",
+                "foreign", "missing"]
+
+var EMPTY_SNAPSHOT = {
+  schema: 1,
+  status: "stopped",
+  error: "",
+  unit: { name: "ollama.service", loadState: "", activeState: "",
+          subState: "", unitFileState: "", result: "", startedAt: null,
+          nRestarts: 0, memoryBytes: null },
+  api: { base: "", reachable: false, serverVersion: null,
+         clientVersion: null, latencyMs: null },
+  loaded: [],
+  installed: [],
+  summary: { loadedCount: 0, loadedBytes: 0, installedCount: 0,
+             installedBytes: 0 }
+}
+
+function emptySnapshot(errorText) {
+  // Deep clone via JSON so callers cannot mutate the shared constant, and
+  // without Object.assign (banned above, and shallow anyway).
+  var snapshot = JSON.parse(JSON.stringify(EMPTY_SNAPSHOT))
+  snapshot.error = errorText || ""
+  return snapshot
+}
+
+function parseSnapshot(raw) {
+  var text = String(raw === undefined || raw === null ? "" : raw).trim()
+  if (text === "") return emptySnapshot("The collector produced no output")
+  var parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch (error) {
+    return emptySnapshot("The collector produced unreadable output")
+  }
+  if (!parsed || typeof parsed !== "object" || parsed instanceof Array)
+    return emptySnapshot("The collector produced unreadable output")
+  if (STATUSES.indexOf(parsed.status) < 0)
+    return emptySnapshot("The collector reported an unknown status")
+  return parsed
+}
+
+function statusDot(status) {
+  if (status === "running") return "●"                       // ●
+  if (status === "foreign") return "◐"                       // ◐
+  if (status === "starting" || status === "stopping") return "◌"  // ◌
+  if (status === "stopped") return "○"                       // ○
+  return "✕"                                                 // ✕
+}
+
+function dotColor(status, fallback) {
+  if (status === "running") return COLOR_OK
+  if (status === "starting" || status === "stopping") return COLOR_BUSY
+  if (status === "foreign") return COLOR_WARN
+  if (status === "failed" || status === "missing") return COLOR_ERROR
+  return fallback
+}
+
+function barSeverity(status) {
+  if (status === "failed" || status === "missing") return "error"
+  if (status === "starting" || status === "stopping" || status === "foreign")
+    return "warn"
+  if (status === "stopped") return "dim"
+  return "normal"
+}
+
+function statusLabel(status, secondsInState) {
+  if (status === "running") return "running"
+  if (status === "stopping") return "stopping…"
+  if (status === "stopped") return "stopped"
+  if (status === "failed") return "failed"
+  if (status === "missing") return "ollama.service not found"
+  if (status === "foreign") return "running — not managed by systemd"
+  if (status === "starting") {
+    var seconds = Number(secondsInState)
+    if (isFinite(seconds) && seconds >= STARTING_RELABEL_SEC)
+      return "started, but not answering on :11434"
+    return "starting…"
+  }
+  return String(status || "")
+}
+
+function bootLabel(unitFileState) {
+  if (unitFileState === "enabled") return "enabled at boot"
+  if (unitFileState === "disabled") return "disabled at boot"
+  return ""
+}
+
+function formatBytes(bytes) {
+  // SI, base 1000, matching `ollama list`. See the plan's deviations note.
+  var value = Number(bytes)
+  if (!isFinite(value) || value <= 0) return "0 B"
+  var units = ["B", "KB", "MB", "GB", "TB"]
+  var index = 0
+  while (value >= 1000 && index < units.length - 1) {
+    value = value / 1000
+    index++
+  }
+  var digits = (index >= 2 && value < 100) ? 1 : 0
+  return value.toFixed(digits) + " " + units[index]
+}
+
+function formatDuration(seconds) {
+  var total = Number(seconds)
+  if (!isFinite(total) || total < 0) return ""
+  total = Math.floor(total)
+  if (total < 60) return total + "s"
+  var minutes = Math.floor(total / 60)
+  if (minutes < 60) return minutes + "m"
+  var hours = Math.floor(minutes / 60)
+  var restMinutes = minutes % 60
+  if (hours < 24)
+    return restMinutes > 0 ? hours + "h " + restMinutes + "m" : hours + "h"
+  var days = Math.floor(hours / 24)
+  var restHours = hours % 24
+  return restHours > 0 ? days + "d " + restHours + "h" : days + "d"
+}
+
+function formatCountdown(seconds) {
+  var total = Number(seconds)
+  if (!isFinite(total) || total <= 0) return "expired"
+  total = Math.floor(total)
+  if (total >= 3600) return formatDuration(total)
+  var minutes = Math.floor(total / 60)
+  var rest = total % 60
+  return minutes + ":" + (rest < 10 ? "0" + rest : String(rest))
+}
+
+function uptimeSeconds(snapshot, nowSec) {
+  if (!snapshot || !snapshot.unit) return null
+  var startedAt = snapshot.unit.startedAt
+  if (startedAt === null || startedAt === undefined) return null
+  var delta = Math.floor(Number(nowSec) - Number(startedAt))
+  if (!isFinite(delta) || delta < 0) return null
+  return delta
+}
+
+function badgeText(snapshot) {
+  if (!snapshot) return ""
+  if (snapshot.status !== "running" && snapshot.status !== "foreign") return ""
+  var count = snapshot.summary ? Number(snapshot.summary.loadedCount) : 0
+  if (!isFinite(count) || count <= 0) return ""
+  return count > BADGE_MAX ? BADGE_MAX + "+" : String(count)
+}
+
+function plural(count, word) {
+  return count + " " + word + (count === 1 ? "" : "s")
+}
+
+function processorLabel(model) {
+  if (!model) return ""
+  if (model.processor === "gpu") return "GPU"
+  if (model.processor === "cpu") return "CPU"
+  return Number(model.gpuPercent) + "% GPU"
+}
+
+function canStart(status, actionInProgress) {
+  if (actionInProgress !== "") return false
+  return status === "stopped" || status === "failed"
+}
+
+function canStop(status, actionInProgress) {
+  if (actionInProgress !== "") return false
+  return status === "running" || status === "starting"
+}
+
+function canRestart(status, actionInProgress) {
+  if (actionInProgress !== "") return false
+  return status === "running" || status === "failed"
+}
+
+function actionDisabledReason(status) {
+  if (status === "foreign")
+    return "Started outside ollama.service — systemd cannot stop it"
+  if (status === "missing") return "ollama.service is not installed"
+  return ""
+}
+
+function optimisticStatusFor(verb) {
+  if (verb === "start" || verb === "restart") return "starting"
+  if (verb === "stop") return "stopping"
+  return ""
+}
+
+function actionErrorText(stderr) {
+  var text = String(stderr === undefined || stderr === null ? "" : stderr)
+  text = text.replace(/\s+/g, " ").trim()
+  if (text === "") return ""
+  if (text.indexOf("Interactive authentication required") >= 0 ||
+      text.indexOf("Access denied") >= 0 ||
+      text.indexOf("not authorized") >= 0) {
+    return "permission denied — the polkit rule is missing; run " +
+           "bin/install-privileges (see README)"
+  }
+  return text.length > 160 ? text.substring(0, 157) + "…" : text
+}
+
+function tooltipText(snapshot, nowSec) {
+  if (!snapshot) return "Colophon"
+  var status = snapshot.status
+  if (status === "missing") return "ollama.service not found"
+
+  var api = snapshot.api || {}
+  var version = api.serverVersion || api.clientVersion || ""
+  var head = "ollama" + (version ? " " + version : "")
+
+  if (status === "running" || status === "foreign") {
+    var parts = [head]
+    if (status === "foreign") parts.push("not managed by systemd")
+    else {
+      var up = uptimeSeconds(snapshot, nowSec)
+      if (up !== null) parts.push("up " + formatDuration(up))
+    }
+    var loaded = snapshot.loaded || []
+    if (loaded.length === 0) parts.push("no models loaded")
+    else if (loaded.length === 1)
+      parts.push(loaded[0].name + " loaded (" + processorLabel(loaded[0]) + ")")
+    else parts.push(loaded.length + " models loaded")
+    return parts.join(" · ")
+  }
+
+  var summary = snapshot.summary || {}
+  var count = Number(summary.installedCount) || 0
+  return head + " " + statusLabel(status, 0) + " · " +
+         plural(count, "model") + ", " + formatBytes(summary.installedBytes)
+}
+
+// QML's engine has no `module`, so this block is skipped there and the file
+// stays a plain script for `import "Model.js" as Model`.
+if (typeof module !== "undefined") {
+  module.exports = {
+    COLOR_OK: COLOR_OK,
+    COLOR_WARN: COLOR_WARN,
+    COLOR_ERROR: COLOR_ERROR,
+    COLOR_BUSY: COLOR_BUSY,
+    BADGE_MAX: BADGE_MAX,
+    STARTING_RELABEL_SEC: STARTING_RELABEL_SEC,
+    STATUSES: STATUSES,
+    EMPTY_SNAPSHOT: EMPTY_SNAPSHOT,
+    emptySnapshot: emptySnapshot,
+    parseSnapshot: parseSnapshot,
+    statusDot: statusDot,
+    dotColor: dotColor,
+    barSeverity: barSeverity,
+    statusLabel: statusLabel,
+    bootLabel: bootLabel,
+    formatBytes: formatBytes,
+    formatDuration: formatDuration,
+    formatCountdown: formatCountdown,
+    uptimeSeconds: uptimeSeconds,
+    badgeText: badgeText,
+    plural: plural,
+    processorLabel: processorLabel,
+    canStart: canStart,
+    canStop: canStop,
+    canRestart: canRestart,
+    actionDisabledReason: actionDisabledReason,
+    optimisticStatusFor: optimisticStatusFor,
+    actionErrorText: actionErrorText,
+    tooltipText: tooltipText
+  }
+}
