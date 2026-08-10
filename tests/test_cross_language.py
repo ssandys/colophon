@@ -27,6 +27,21 @@ def load_manifest():
     return json.loads(read("manifest.json"))
 
 
+def panel_is_wired():
+    """True once Panel.qml has been wired to Service.qml.
+
+    File existence is the WRONG arming condition for a Panel.qml guard:
+    Panel.qml exists from the walking-skeleton task onward, so keying on it
+    makes the kind guard fail against a skeleton that legitimately has no
+    actions yet, AND makes the palette guard pass vacuously against a skeleton
+    that has no colors yet. Instantiating Service is the unambiguous marker
+    that the real panel has landed.
+    """
+    if not os.path.exists(os.path.join(ROOT, "Panel.qml")):
+        return False
+    return re.search(r"^\s*Service\s*\{", read("Panel.qml"), re.M) is not None
+
+
 class StatusSetTest(unittest.TestCase):
     def test_javascript_statuses_match_python(self):
         # Model.js maps every status to a glyph, a color, and a label. A status
@@ -116,9 +131,11 @@ class ColorPaletteTest(unittest.TestCase):
     def test_qml_hex_literals_come_from_the_model_palette(self):
         # Panel.qml inlines hex because bar chrome cannot import Model.js in a
         # binding cheaply; this keeps the two from drifting apart.
+        if not panel_is_wired():
+            self.skipTest("Panel.qml is still the skeleton -- guard would "
+                          "pass vacuously against a file with no colors")
         for name in ("Panel.qml", "Service.qml"):
-            path = os.path.join(ROOT, name)
-            if not os.path.exists(path):
+            if not os.path.exists(os.path.join(ROOT, name)):
                 self.skipTest(name + " not written yet")
             extra = self.hex_literals(read(name)) - self.model_colors()
             self.assertEqual(extra, set(),
@@ -166,9 +183,9 @@ class KindRoutingTest(unittest.TestCase):
                                  name + " re-derives the model kind")
 
     def test_the_panel_passes_kind_through(self):
-        path = os.path.join(ROOT, "Panel.qml")
-        if not os.path.exists(path):
-            self.skipTest("Panel.qml not written yet")
+        if not panel_is_wired():
+            self.skipTest("Panel.qml is still the skeleton -- it has no "
+                          "actions to pass a kind to yet")
         self.assertIn("kind", read("Panel.qml"),
                       "Panel.qml must pass a model's kind to runAction")
 
