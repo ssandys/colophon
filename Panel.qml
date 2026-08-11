@@ -512,6 +512,7 @@ Panel {
                 Button {
                   Layout.fillWidth: true
                   Layout.leftMargin: Style.space(14)
+                  leftAlign: true
                   // One click: start the server if needed, wait for the port,
                   // then warm the model. You rarely want "the server" -- you
                   // want a model.
