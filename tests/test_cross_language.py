@@ -115,7 +115,8 @@ class ModelJsSyntaxTest(unittest.TestCase):
 
 
 class BarGlyphTest(unittest.TestCase):
-    """The bar glyph must be a non-empty \\uXXXX escape, never a literal glyph.
+    """The bar glyph must be exactly the \\uF2DB escape, never a literal
+    glyph and never some other, still well-formed, escape.
 
     U+F2DB is a Nerd Font codepoint in the Unicode Private Use Area, and PUA
     characters do not survive every editing path. This project shipped a
@@ -124,7 +125,15 @@ class BarGlyphTest(unittest.TestCase):
     131 tests passed. Nothing else could have caught it. An escape is greppable,
     diffable, and immune to the whole class of loss -- galley writes its glyph
     the same way for the same reason.
+
+    The non-empty and shape checks below are kept for their clearer failure
+    messages, but neither one alone closes the hole this test used to have:
+    they pass just as happily on the wrong glyph -- "A" fails both, but a
+    typo'd escape like "\\uF2DA" satisfies both while rendering a different
+    icon entirely. Only the exact-equality assertion catches that.
     """
+
+    BAR_GLYPH = "\\uF2DB"   # U+F2DB nf-fa-microchip; see AGENTS.md trap #14
 
     def test_bar_icon_is_a_nonempty_escape(self):
         match = re.search(r'property string barIcon:\s*"([^"]*)"', read("Panel.qml"))
@@ -135,6 +144,10 @@ class BarGlyphTest(unittest.TestCase):
         self.assertRegex(
             literal, r"^\\u[0-9a-fA-F]{4}$",
             "write barIcon as a \\uXXXX escape, not a literal glyph character")
+        self.assertEqual(
+            literal, self.BAR_GLYPH,
+            "barIcon is a well-formed escape but not the microchip glyph -- "
+            "did a typo or a copy/paste substitute a different codepoint?")
 
 
 class ColorPaletteTest(unittest.TestCase):
