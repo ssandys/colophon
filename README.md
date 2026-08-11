@@ -13,18 +13,21 @@ bind, and warming the model from a second command. Colophon makes that one
 click, and makes "is it on, and what is it holding right now?" answerable at
 a glance.
 
-![The Colophon panel open below the bar: a header reading "Colophon" next to
-the server version, a status line reading "running · up 14m · 4.1 GB" with
-stop and restart buttons and a "disabled at boot" note, a LOADED section
-showing llama3.2:3b at 3.4 GB on the GPU with an expiry countdown and an
-unload button, and an INSTALLED section below it listing the rest of the
-model store with a byte total, scrolling within a capped height](docs/panel.png)
+<!-- TODO: capture a screenshot of the panel open in the running state and
+     add it here, e.g. ![...](docs/panel.png). It should show one model
+     warmed and loaded, its GPU badge and keep-alive countdown visible, and
+     the full installed list scrolling underneath so the panel stays useful
+     even when nothing is loaded. -->
 
-Above: the running state — one model loaded and warmed, its GPU badge and
-keep-alive countdown visible, and the full installed list scrolling
-underneath so the panel stays useful even when nothing is loaded. The bar
-glyph carries a badge for the one loaded model; its color stays the default
-foreground because nothing here is wrong.
+Open the panel while the server is running and you'll see a header reading
+"Colophon" next to the server version, a status line such as "running · up
+14m · 4.1 GB" with stop and restart buttons and a "disabled at boot" note, a
+LOADED section showing each warmed model with its GPU badge and an
+expiry countdown next to an unload button, and an INSTALLED section below it
+listing the rest of the model store with a byte total, scrolling within a
+capped height so the panel never outgrows the screen. The bar glyph itself
+carries a badge for the count of loaded models; its color stays the default
+foreground as long as nothing is wrong.
 
 ## Prerequisites
 
