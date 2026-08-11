@@ -29,10 +29,10 @@ the bar as color, and the badge only ever carries a count.
 | `python3` | The collector and action scripts | `python` |
 | `notify-send` | The "service died unexpectedly" notification | `libnotify` |
 
-Also required: the Omarchy shell itself, which you already have if you're
-reading this bar. There are no pip or npm dependencies at runtime — the
-Python side is stdlib-only by design (see `AGENTS.md` if you're extending
-it).
+Also required: the Omarchy shell itself.
+
+There are no pip or npm dependencies at runtime — the Python side is stdlib-only
+by design (see `AGENTS.md` if you're extending it).
 
 Install anything missing with `omarchy pkg add <package>`.
 
