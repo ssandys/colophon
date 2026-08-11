@@ -5,29 +5,26 @@ Ollama server — running, stopped, or something in between — and lets you
 start it, stop it, restart it, and load or unload models, without leaving
 the bar.
 
-The problem it solves: Ollama is a 19 GB service made of a handful of large
-model files, and you generally want it running only while you're actually
+The problem it solves: Ollama is a multi-gigabyte service made of a handful of
+large model files, and you generally want it running only while you're actually
 using a model. Today, without Colophon, "use a local model" means opening a
 terminal, remembering the unit name, authenticating, waiting for the port to
 bind, and warming the model from a second command. Colophon makes that one
 click, and makes "is it on, and what is it holding right now?" answerable at
 a glance.
 
-<!-- TODO: capture a screenshot of the panel open in the running state and
-     add it here, e.g. ![...](docs/panel.png). It should show one model
-     warmed and loaded, its GPU badge and keep-alive countdown visible, and
-     the full installed list scrolling underneath so the panel stays useful
-     even when nothing is loaded. -->
+![The Colophon panel open below the bar: a header reading "Colophon" beside
+"ollama 0.32.7"; a status line "running · up 18h 48m · 3.5 GB" with a green
+dot, "2 models loaded" on the right, a "disabled at boot" note, and stop and
+restart buttons; a LOADED section listing qwen2.5:7b at 6.5 GB and
+deepseek-r1:latest at 9.9 GB, each marked GPU with a keep-alive countdown and
+an unload button; and an INSTALLED section headed "9 · 19.7 GB" listing the
+whole model store](docs/panel.png)
 
-Open the panel while the server is running and you'll see a header reading
-"Colophon" next to the server version, a status line such as "running · up
-14m · 4.1 GB" with stop and restart buttons and a "disabled at boot" note, a
-LOADED section showing each warmed model with its GPU badge and an
-expiry countdown next to an unload button, and an INSTALLED section below it
-listing the rest of the model store with a byte total, scrolling within a
-capped height so the panel never outgrows the screen. The bar glyph itself
-carries a badge for the count of loaded models; its color stays the default
-foreground as long as nothing is wrong.
+Above: the busy state — two models resident on the GPU, their keep-alive
+timers counting down, and the bar glyph carrying a badge of `2`. The glyph's
+color stays the default foreground while nothing is wrong; severity reaches
+the bar as color, and the badge only ever carries a count.
 
 ## Prerequisites
 
