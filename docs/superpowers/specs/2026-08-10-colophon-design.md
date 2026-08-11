@@ -411,8 +411,8 @@ first step, not a formality.
 
 ### Bar widget
 
-Glyph `` — U+F2DB, Nerd Font microchip — always visible. Deliberately a BMP
-codepoint so it is a plain QML escape (`""`) like galley's U+F02F `` — the nicer
+Glyph `\uF2DB` — U+F2DB, Nerd Font microchip — always visible. Deliberately a BMP
+codepoint so it is a plain QML escape (`"\uF2DB"`) like galley's U+F02F `\uF02F` — the nicer
 `nf-md-brain` is U+F09D1 and would need a surrogate pair in QML.
 
 | `status` | Glyph color | Badge |
