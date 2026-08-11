@@ -9,10 +9,13 @@ this file whenever a new value crosses a language boundary.
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FIXTURES = os.path.join(ROOT, "tests", "fixtures")
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
 import colophon_collect as collect
@@ -239,3 +242,116 @@ class ShowPropertyTest(unittest.TestCase):
                 uses = len(re.findall(r'"' + prop + r'"', source))
                 self.assertGreaterEqual(
                     uses, 2, prop + " is requested but never read")
+
+
+def node_binary():
+    return shutil.which("node")
+
+
+def empty_snapshot_key_shape():
+    """The key set of Model.js's EMPTY_SNAPSHOT, at the top level and at each
+    of its three nested object levels (unit/api/summary; loaded/installed
+    are arrays with no shape of their own to dump).
+
+    Shelled out to node rather than parsed with a regex: EMPTY_SNAPSHOT is a
+    nested JS object literal, and getting that right by hand-rolled pattern
+    matching is exactly the kind of thing that would itself be subtly wrong.
+    node is already a project dependency (tests/model.test.js runs under
+    node --test), so requiring Model.js for real and dumping Object.keys is
+    both simpler and more trustworthy than parsing its source as text.
+    """
+    script = (
+        "var Model = require(" + json.dumps(os.path.join(ROOT, "Model.js")) + ");"
+        "var s = Model.EMPTY_SNAPSHOT;"
+        "process.stdout.write(JSON.stringify({"
+        "top: Object.keys(s).sort(),"
+        "unit: Object.keys(s.unit).sort(),"
+        "api: Object.keys(s.api).sort(),"
+        "summary: Object.keys(s.summary).sort()"
+        "}));"
+    )
+    result = subprocess.run([node_binary(), "-e", script],
+                            capture_output=True, text=True, timeout=10)
+    if result.returncode != 0:
+        raise AssertionError("node -e failed: " + result.stderr)
+    return json.loads(result.stdout)
+
+
+class SnapshotSchemaTest(unittest.TestCase):
+    """Nothing previously bridged the collector's JSON to Model.js.
+
+    The snapshot schema exists three times: emitted by collect(), mirrored by
+    hand in Model.js's EMPTY_SNAPSHOT, and hand-duplicated again in
+    tests/model.test.js's RUNNING literal. Renaming sizeBytes to bytes in the
+    collector would leave every one of those 132 tests green while the panel
+    quietly rendered the wrong thing everywhere that key is read -- exactly
+    the class of silent cross-boundary failure this file exists to prevent,
+    and, until now, the one boundary it did not actually guard.
+
+    Driven entirely from tests/fixtures via collect.FixtureSource, so it
+    needs no live service.
+    """
+
+    def setUp(self):
+        if not node_binary():
+            self.skipTest("node not found on PATH")
+        self.shape = empty_snapshot_key_shape()
+
+    def snapshot_for(self, state):
+        source = collect.FixtureSource(os.path.join(FIXTURES, state),
+                                       "http://127.0.0.1:11434")
+        return collect.collect(source, now_sec=5000.0, uptime_sec=1000.0)
+
+    def test_top_level_and_nested_objects_match_empty_snapshot(self):
+        for state in ("running", "stopped", "foreign"):
+            with self.subTest(state=state):
+                snapshot = self.snapshot_for(state)
+                self.assertEqual(sorted(snapshot.keys()), self.shape["top"])
+                self.assertEqual(sorted(snapshot["unit"].keys()),
+                                 self.shape["unit"])
+                self.assertEqual(sorted(snapshot["api"].keys()),
+                                 self.shape["api"])
+                self.assertEqual(sorted(snapshot["summary"].keys()),
+                                 self.shape["summary"])
+
+    def test_a_loaded_row_carries_every_key_panel_qml_reads_off_it(self):
+        # `running` is the only fixture state that populates `loaded` -- a
+        # row object has to exist somewhere before its keys can be checked.
+        snapshot = self.snapshot_for("running")
+        loaded = snapshot["loaded"]
+        self.assertTrue(loaded, "the running fixture must populate loaded")
+        row_keys = set(loaded[0].keys())
+
+        panel = read("Panel.qml")
+        # Scoped to the LOADED section only: Panel.qml reuses `modelData` as
+        # the Repeater loop variable for BOTH the loaded and installed
+        # lists, and the two row shapes are genuinely different (a loaded
+        # row has no `family`; an installed row has no `expiresAt`).
+        # Slicing on the file's own section comments keeps the two separate.
+        loaded_text = panel[panel.index("── Loaded models ──"):
+                            panel.index("── Installed models ──")]
+        referenced = set(re.findall(r"modelData\.([A-Za-z]+)", loaded_text))
+        self.assertTrue(referenced, "no modelData.* reads found in the "
+                                    "loaded section -- did the markers move?")
+        missing = referenced - row_keys
+        self.assertEqual(missing, set(),
+                         "Panel.qml reads a key off a loaded-model row that "
+                         "the collector does not emit: " + str(missing))
+
+    def test_an_installed_row_carries_every_key_panel_qml_reads_off_it(self):
+        snapshot = self.snapshot_for("stopped")
+        installed = snapshot["installed"]
+        self.assertTrue(installed, "the shared models fixture must be "
+                                   "non-empty")
+        row_keys = set(installed[0].keys())
+
+        panel = read("Panel.qml")
+        installed_text = panel[panel.index("── Installed models ──"):]
+        referenced = set(re.findall(r"modelData\.([A-Za-z]+)", installed_text))
+        self.assertTrue(referenced, "no modelData.* reads found in the "
+                                    "installed section -- did the markers "
+                                    "move?")
+        missing = referenced - row_keys
+        self.assertEqual(missing, set(),
+                         "Panel.qml reads a key off an installed-model row "
+                         "that the collector does not emit: " + str(missing))
