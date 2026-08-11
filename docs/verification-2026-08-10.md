@@ -44,6 +44,10 @@ We chose not to install a deliberately over-broad rule on a working machine to t
 
 **The MVP decision is unaffected:** the grant demonstrably excludes everything outside its verb allow-list (`start`, `stop`, `restart`), per the freeze/stop test above. Whether `manage-unit-files` can be scoped is a separate design question and does not change the current scope or safety of the deployed grant.
 
+## The probe really is a no-op, confirmed after the fact
+
+The `stop` probe above ran against an already-inactive unit, which is the whole point of choosing it as the no-op verb — but "exit 0" alone doesn't prove nothing moved. The controller followed it with `systemctl is-active ollama.service` and got back `inactive`: the unit's state was exactly where it started. (This follow-up is recorded in the SDD ledger, from Task 2's second fix round; it is described here rather than reproduced as a fresh transcript, since re-running it today would capture today's state, not that session's.)
+
 # Task 3 Verification — load/unload idiom
 
 With `ollama.service` started via `systemctl --no-ask-password start ollama.service` (exit 0).
@@ -108,3 +112,11 @@ $ curl -s http://127.0.0.1:11434/api/embed \
 ```
 
 **Verdict: CONFIRMED — the split is real and necessary.** `POST /api/generate` against the embedding model `nomic-embed-text` errors with `"\"nomic-embed-text\" does not support generate"`; it does not load the model. `POST /api/embed` against the same model succeeds (no error; `embeddings` is present, empty only because the probe used an empty `input` string). The design's routing decision — warm generate-capable models via `/api/generate` and embedding models via `/api/embed` — is load-bearing and should **not** be simplified to a single endpoint.
+
+# Follow-up — the `stopped` fixture's zeroed fields are genuine, not stale
+
+A code reviewer flagged a warn-level concern during Task 3: `tests/fixtures/stopped/systemctl.txt` carries `ExecMainStartTimestampMonotonic=0` and `MemoryCurrent=[not set]`, and the reviewer suspected this was actually a *pre-start* capture rather than a real post-stop snapshot — a plausible worry, since nothing about "the unit is stopped" obviously implies systemd forgets when it last ran.
+
+The controller tested this directly on this machine, outside the fixture: start `ollama.service`, confirm via `systemctl show` that `ExecMainStartTimestampMonotonic` and `MemoryCurrent` are populated, then stop it and read `systemctl show` again.
+
+**Finding: systemd 261 resets both fields on stop.** `ExecMainStartTimestampMonotonic` returns to `0` and `MemoryCurrent` reports `[not set]` — exactly what the `stopped` fixture shows. The fixture is genuine, not stale, and `unit_from_show`'s resulting `startedAt: None` / `memoryBytes: None` for a stopped unit — asserted by `tests/test_collect.py`'s `UnitFromShowTest.test_shapes_the_stopped_fixture` — is representative of the real system's behavior, not an artifact of how or when the fixture was captured. No fix was needed; the reviewer's premise was the thing that was wrong.
