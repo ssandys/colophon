@@ -142,7 +142,7 @@ entirely through the glyph's color, so a red glyph carrying a badge means
 
 Hovering the icon shows a tooltip summary, e.g. `ollama 0.32.7 · up 14m ·
 llama3.2:3b loaded (GPU)` while running, or `ollama 0.32.7 stopped · 9
-models, 19 GB` while not.
+models, 19.7 GB` while not.
 
 ## Using the panel
 
