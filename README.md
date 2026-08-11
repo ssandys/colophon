@@ -5,14 +5,6 @@ Ollama server — running, stopped, or something in between — and lets you
 start it, stop it, restart it, and load or unload models, without leaving
 the bar.
 
-The problem it solves: Ollama is a multi-gigabyte service made of a handful of
-large model files, and you generally want it running only while you're actually
-using a model. Today, without Colophon, "use a local model" means opening a
-terminal, remembering the unit name, authenticating, waiting for the port to
-bind, and warming the model from a second command. Colophon makes that one
-click, and makes "is it on, and what is it holding right now?" answerable at
-a glance.
-
 ![The Colophon panel open below the bar: a header reading "Colophon" beside
 "ollama 0.32.7"; a status line "running · up 18h 48m · 3.5 GB" with a green
 dot, "2 models loaded" on the right, a "disabled at boot" note, and stop and
