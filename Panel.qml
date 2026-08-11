@@ -510,19 +510,24 @@ Panel {
                 model: root.snap.installed || []
 
                 Button {
+                  id: installedButton
                   Layout.fillWidth: true
                   Layout.leftMargin: Style.space(14)
-                  leftAlign: true
                   // One click: start the server if needed, wait for the port,
                   // then warm the model. You rarely want "the server" -- you
                   // want a model.
-                  text: {
-                    var label = modelData.name
-                    var pad = Model.formatBytes(modelData.sizeBytes)
-                    if (service.actionInProgress === "warm:" + modelData.name)
-                      return label + "   warming…"
-                    return label + "   " + pad
-                  }
+                  //
+                  // The label is a single space, not "" -- Button's Row skips
+                  // any child made invisible by `visible: text !== ""`
+                  // entirely, so an empty label collapses row.implicitHeight
+                  // (and with it the button's implicitHeight) to 0. A
+                  // one-character label keeps that Text visible, which keeps
+                  // the row's real line-height, and paints nothing since a
+                  // space has no ink -- confirmed with a headless qml probe
+                  // (see the SDD report). leftAlign is dropped: with no
+                  // visible label left to position, it no longer does
+                  // anything.
+                  text: " "
                   foreground: root.fg
                   tooltipText: {
                     var bits = [modelData.name]
@@ -541,6 +546,40 @@ Panel {
                   opacity: enabled ? 1.0 : 0.4
                   onClicked: service.runAction("warm", modelData.name,
                                                modelData.kind)
+
+                  // Same idiom as the bar-glyph badge in the WidgetButton
+                  // above: plain Text children painted over the clickable
+                  // surface. No MouseArea here, so click-to-load, hover, and
+                  // the tooltip all keep working straight through. Anchored
+                  // to the button's own reserved content insets so the text
+                  // lines up with where the concatenated label used to sit,
+                  // rather than flush against the border.
+                  RowLayout {
+                    anchors.left: installedButton.left
+                    anchors.leftMargin: installedButton._reservedContentLeftInset
+                    anchors.right: installedButton.right
+                    anchors.rightMargin: installedButton._reservedBorderRight +
+                                          installedButton.horizontalPadding
+                    anchors.verticalCenter: installedButton.verticalCenter
+                    spacing: Style.space(6)
+
+                    Text {
+                      text: modelData.name
+                      color: root.fg
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      Layout.fillWidth: true
+                      elide: Text.ElideRight
+                    }
+
+                    Text {
+                      text: service.actionInProgress === "warm:" + modelData.name
+                        ? "warming…" : Model.formatBytes(modelData.sizeBytes)
+                      color: root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                  }
                 }
               }
             }
