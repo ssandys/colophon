@@ -159,9 +159,10 @@ and restart again to go back to touching the real system.
   nothing more.** `qmllint` cannot resolve Quickshell or Omarchy imports
   (`qs.Commons`, `qs.Ui`, `WidgetButton`, and so on are all unknown to it),
   so an unknown component, a typo'd property, or a reference to something
-  that doesn't exist on `root.bar` all pass silently. QML *correctness* is
-  verified by hand against the live shell, not by this suite. (See trap
-  #15 for what a QML parse failure actually looks like here.)
+  that doesn't exist on `root.bar` all pass silently. QML *correctness*
+  must be verified by hand against the live shell — this suite cannot do
+  it, and a green run is not evidence that anyone has. (See trap #15 for
+  what a QML parse failure actually looks like here.)
 
 - `./bin/dev-watch` installs once, then watches the source tree with
   `inotifywait` and reinstalls on every save, so

@@ -293,14 +293,20 @@ readable.
 
 ## Uninstall
 
-```bash
-sudo bin/install-privileges --remove
-omarchy plugin remove ssandys.colophon
-```
-
 Remove the polkit rule *first*. `bin/install-privileges` lives inside the
 plugin directory that `omarchy plugin remove` deletes, so removing the
 grant afterward would leave you with no script to run it from without
-cloning the repo again. Uninstalling the widget never touches
-`ollama.service` or anything under `/var/lib/ollama` either way — your
-server and your models are untouched.
+cloning the repo again. Where you run it from depends on how you installed
+— the same two paths as Install, above:
+
+- **Published clone:** `sudo ~/.config/omarchy/plugins/ssandys.colophon/bin/install-privileges --remove`
+- **Dev checkout** (working on Colophon itself): `sudo bin/install-privileges --remove`, from the repo root.
+
+Then, from anywhere:
+
+```bash
+omarchy plugin remove ssandys.colophon
+```
+
+Uninstalling the widget never touches `ollama.service` or anything under
+`/var/lib/ollama` either way — your server and your models are untouched.
