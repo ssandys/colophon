@@ -130,8 +130,8 @@ file:
 - `ps.json` — the `/api/ps` response; only read when `version.json` is
   present.
 - `models/` — a manifest tree for `scan_installed`, in the same layout as
-  the real `/var/lib/ollama` (`manifests/<namespace>/<name>/<tag>` files
-  plus a `blobs/` directory). Optional per-state: if a state's own
+  the real `/var/lib/ollama` (`manifests/<registry>/<namespace>/<name>/<tag>`
+  files plus a `blobs/` directory). Optional per-state: if a state's own
   directory has no `models/`, `FixtureSource.models_root` falls back to the
   shared `tests/fixtures/models/`, so the inventory isn't duplicated once
   per state.

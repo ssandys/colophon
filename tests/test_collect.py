@@ -150,12 +150,36 @@ class ModelKindTest(unittest.TestCase):
 
 class ModelLabelTest(unittest.TestCase):
     def test_library_models_drop_the_namespace(self):
-        self.assertEqual(collect.model_label("library", "llama3.2", "3b"),
-                         "llama3.2:3b")
+        # registry.ollama.ai/library/<name>/<tag> is the ordinary case: the
+        # namespace shorthand only fires for Ollama's own registry.
+        self.assertEqual(
+            collect.model_label("registry.ollama.ai", "library",
+                                "llama3.2", "3b"),
+            "llama3.2:3b")
 
-    def test_other_namespaces_are_kept(self):
-        self.assertEqual(collect.model_label("hf.co", "someone", "q4"),
-                         "hf.co/someone:q4")
+    def test_non_library_namespaces_under_the_official_registry_are_kept(self):
+        self.assertEqual(
+            collect.model_label("registry.ollama.ai", "someone", "model",
+                                "q4"),
+            "someone/model:q4")
+
+    def test_ollama_com_is_also_the_official_registry(self):
+        # ollama.com is Ollama's other first-party registry name; it gets the
+        # same namespace-dropping treatment as registry.ollama.ai.
+        self.assertEqual(
+            collect.model_label("ollama.com", "library", "llama3.2", "3b"),
+            "llama3.2:3b")
+
+    def test_a_foreign_registry_keeps_its_own_prefix(self):
+        # This is the real-world bug: hf.co/bartowski/... is an ordinary
+        # Ollama workflow, and the registry component is part of the name
+        # Ollama itself expects back on every API call -- dropping it (as the
+        # old 3-argument model_label did, treating "hf.co" as a namespace)
+        # produces a name Ollama does not recognize.
+        self.assertEqual(
+            collect.model_label("hf.co", "bartowski",
+                                "Llama-3.2-3B-Instruct-GGUF", "Q4_K_M"),
+            "hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M")
 
 
 class NormalizeLoadedTest(unittest.TestCase):
@@ -199,11 +223,23 @@ class ScanInstalledTest(unittest.TestCase):
     def test_reads_the_fixture_tree(self):
         entries, unique_bytes = collect.scan_installed(
             os.path.join(FIXTURES, "models"))
-        self.assertGreaterEqual(len(entries), 9)
+        self.assertGreaterEqual(len(entries), 10)
         names = [entry["name"] for entry in entries]
         self.assertIn("llama3.2:3b", names)
         self.assertIn("nomic-embed-text:latest", names)
         self.assertGreater(unique_bytes, 0)
+
+    def test_a_foreign_registry_model_keeps_its_full_name(self):
+        # Pins the real-world bug end to end: a manifest under a non-Ollama
+        # registry (manifests/hf.co/someone/some-model/Q4_K_M) must render
+        # with the registry prefix intact, matching what Ollama itself
+        # expects back on /api/generate or /api/embed.
+        entries, _ = collect.scan_installed(os.path.join(FIXTURES, "models"))
+        by_name = {entry["name"]: entry for entry in entries}
+        self.assertIn("hf.co/someone/some-model:Q4_K_M", by_name)
+        entry = by_name["hf.co/someone/some-model:Q4_K_M"]
+        self.assertEqual(entry["quantization"], "Q4_K_M")
+        self.assertEqual(entry["kind"], "generate")
 
     def test_entries_are_sorted_by_name(self):
         entries, _ = collect.scan_installed(os.path.join(FIXTURES, "models"))
@@ -248,7 +284,7 @@ class ScanInstalledTest(unittest.TestCase):
             names = [entry["name"] for entry in entries]
             self.assertNotIn("corrupt:latest", names)
             self.assertIn("llama3.2:3b", names)
-            self.assertGreaterEqual(len(entries), 9)
+            self.assertGreaterEqual(len(entries), 10)
             self.assertGreater(unique_bytes, 0)
 
     def test_a_manifest_with_wrong_shaped_config_and_layers_is_survivable(self):
@@ -339,7 +375,7 @@ class FixtureReplayTest(unittest.TestCase):
         # The whole reason the inventory is read from disk: a stopped panel is
         # still informative.
         snapshot = self.snapshot_for("stopped")
-        self.assertGreaterEqual(snapshot["summary"]["installedCount"], 9)
+        self.assertGreaterEqual(snapshot["summary"]["installedCount"], 10)
         self.assertGreater(snapshot["summary"]["installedBytes"], 0)
 
     def test_loaded_is_empty_whenever_the_api_is_silent(self):

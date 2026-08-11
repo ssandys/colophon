@@ -190,7 +190,16 @@ def model_kind(family):
     return "embed" if str(family or "") in EMBED_FAMILIES else "generate"
 
 
-def model_label(namespace, name, tag):
+def model_label(registry, namespace, name, tag):
+    """Reproduce Ollama's own naming rule from a manifest path.
+
+    The registry component is dropped from the label only for Ollama's own
+    registries -- the `library` namespace shorthand only applies there too.
+    Any other registry (e.g. `hf.co`) is genuinely part of the model's name;
+    Ollama itself expects it back on every API call.
+    """
+    if registry not in ("registry.ollama.ai", "ollama.com"):
+        return registry + "/" + namespace + "/" + name + ":" + tag
     if namespace == "library":
         return name + ":" + tag
     return namespace + "/" + name + ":" + tag
@@ -253,9 +262,15 @@ def scan_installed(root):
         if not manifest:
             continue
         parts = path.split(os.sep)
-        if len(parts) < 4:
+        # Unreachable in practice, same as before this fix: the glob pattern
+        # itself contributes 5 literal/wildcard segments ("manifests" plus
+        # four stars), so a matched path always yields at least 5 elements
+        # here regardless of what `root` looks like. Kept as a defensive
+        # guard rather than an assumption we rely on.
+        if len(parts) < 5:
             continue
-        namespace, name, tag = parts[-3], parts[-2], parts[-1]
+        registry, namespace, name, tag = (parts[-4], parts[-3], parts[-2],
+                                          parts[-1])
 
         size = 0
         # Each shape is checked rather than assumed: a corrupted manifest that
@@ -286,7 +301,7 @@ def scan_installed(root):
             modified = None
 
         entries.append({
-            "name": model_label(namespace, name, tag),
+            "name": model_label(registry, namespace, name, tag),
             "sizeBytes": size,
             "family": family,
             "parameterSize": blob.get("model_type") or "",
