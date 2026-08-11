@@ -350,15 +350,24 @@ Panel {
           // way to reach them. The installed list was protected and this one
           // was not; both need it.
           ScrollView {
+            id: loadedScroll
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(loadedColumn.implicitHeight,
                                              Style.space(120))
             clip: true
             visible: (root.snap.loaded || []).length > 0
+            // Inside a QQuickScrollView the content child is reparented
+            // under the Flickable's content item, whose width IS
+            // contentWidth -- so a plain `width: parent.width` sizes the
+            // column to its natural width, not the space actually
+            // available, and Layout.fillWidth + elide on the row Text has
+            // nothing to fill against. availableWidth is the idiom the
+            // shell's own monitor/audio panels use for exactly this.
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
             ColumnLayout {
               id: loadedColumn
-              width: parent.width
+              width: loadedScroll.availableWidth
               spacing: Style.space(2)
 
               Repeater {
@@ -418,6 +427,15 @@ Panel {
                 }
               }
             }
+
+            // The inner Flickable must only claim wheel/drag input when the
+            // content actually overflows -- otherwise a short list still
+            // swallows scroll events the panel's outer view should get.
+            Binding {
+              target: loadedScroll.contentItem
+              property: "interactive"
+              value: loadedColumn.implicitHeight > loadedScroll.height
+            }
           }
         }
 
@@ -473,14 +491,19 @@ Panel {
           // Scrolls within a capped height, so a machine with forty models
           // does not produce a panel taller than the screen.
           ScrollView {
+            id: installedScroll
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(installedColumn.implicitHeight,
                                              Style.space(190))
             clip: true
+            // See loadedScroll above: availableWidth, not parent.width, is
+            // what keeps a long row from widening this ScrollView instead
+            // of staying inside it.
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
             ColumnLayout {
               id: installedColumn
-              width: parent.width
+              width: installedScroll.availableWidth
               spacing: Style.space(2)
 
               Repeater {
@@ -519,6 +542,12 @@ Panel {
                                                modelData.kind)
                 }
               }
+            }
+
+            Binding {
+              target: installedScroll.contentItem
+              property: "interactive"
+              value: installedColumn.implicitHeight > installedScroll.height
             }
           }
         }
