@@ -82,6 +82,20 @@ class PlanTest(unittest.TestCase):
         self.assertIn("http://10.0.0.9:1234/api/generate", steps[0])
 
 
+class TimeoutConstantsTest(unittest.TestCase):
+    def test_the_load_post_timeout_is_not_the_api_wait_deadline(self):
+        # A prompt-less /api/generate only returns once the model is fully
+        # resident in memory -- done_reason "load" is the completion signal,
+        # not an early ack -- so a large model loading from a cold page
+        # cache routinely exceeds a 20s deadline while still succeeding.
+        # Sharing one constant between "wait for the port to bind" (fast)
+        # and "wait for the load POST to finish" (can be slow) is exactly
+        # the bug this pins against a regression.
+        self.assertGreater(action.LOAD_POST_TIMEOUT_SEC,
+                           action.API_WAIT_DEADLINE_SEC)
+        self.assertGreaterEqual(action.LOAD_POST_TIMEOUT_SEC, 120)
+
+
 class DryRunTest(unittest.TestCase):
     def test_start_prints_the_command_and_exits_zero(self):
         result = run(["start", "--dry-run"])

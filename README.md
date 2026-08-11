@@ -144,9 +144,13 @@ models, 19 GB` while not.
 ## Using the panel
 
 - **Click an installed model** to warm it — this starts the server first if
-  it isn't already up, waits for it to answer, then loads the model. The
-  first click after a cold start can take up to ~20 seconds; the row reads
-  "warming…" and the status line reads "starting…" while it happens.
+  it isn't already up, waits for it to answer, then loads the model.
+  Starting the server and binding the port takes up to ~20 seconds; loading
+  the model itself can take considerably longer for a large model on a cold
+  page cache, and Colophon waits for that too rather than reporting a false
+  timeout while the load is still quietly succeeding. The row reads
+  "warming…" and the status line reads "starting…" for as long as either
+  step takes.
 - **`✕`** next to a loaded model unloads it immediately, freeing its memory.
 - **`r`** refreshes the panel right away.
 - **`esc`** closes the panel.

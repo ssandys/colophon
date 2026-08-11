@@ -38,7 +38,20 @@ DEFAULT_KEEP_ALIVE_MIN = 5
 
 SYSTEMCTL_TIMEOUT_SEC = 30
 API_TIMEOUT_SEC = 5
-WARM_DEADLINE_SEC = 20
+
+# How long to wait for the port to bind after `systemctl start` -- genuinely
+# fast, since this is only polling a TCP connect/HTTP GET in a tight loop.
+API_WAIT_DEADLINE_SEC = 20
+
+# How long the load POST itself may take. A prompt-less /api/generate only
+# returns once the model is fully resident in memory -- `done_reason: "load"`
+# is the completion signal, not an early ack -- and a 7B Q4 model loading from
+# cold page cache routinely takes well over 20s. This must be much larger than
+# API_WAIT_DEADLINE_SEC: an unbound port is a fast failure, a slow disk read
+# during a real load is not a failure at all. 300s comfortably covers a large
+# model on a cold cache without waiting forever on a genuinely dead server.
+LOAD_POST_TIMEOUT_SEC = 300
+
 POLL_SLEEP_SEC = 0.5
 
 MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]+\Z")
@@ -74,7 +87,7 @@ def plan(verb, target, kind, keep_alive_min, api_base, running):
     if verb == "warm" and not running:
         steps.append(" ".join(systemctl_command("start")))
         steps.append("WAIT " + base + "/api/version up to "
-                     + str(WARM_DEADLINE_SEC) + "s")
+                     + str(API_WAIT_DEADLINE_SEC) + "s")
     steps.append("POST " + base + endpoint_for(kind) + " "
                  + json.dumps(load_body(target, kind, keep_alive),
                               sort_keys=True))
@@ -106,7 +119,7 @@ def post_json(url, body):
     request = urllib.request.Request(
         url, data=payload, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=WARM_DEADLINE_SEC) as response:
+        with urllib.request.urlopen(request, timeout=LOAD_POST_TIMEOUT_SEC) as response:
             response.read()
         return 0
     except urllib.error.HTTPError as error:
@@ -162,7 +175,7 @@ def execute(verb, target, kind, keep_alive_min, api_base):
         code = run_systemctl("start")
         if code != 0:
             return code
-        if not wait_for_api(api_base, WARM_DEADLINE_SEC):
+        if not wait_for_api(api_base, API_WAIT_DEADLINE_SEC):
             sys.stderr.write(
                 "colophon: started the service but it never answered on "
                 + str(api_base) + "\n")
