@@ -202,8 +202,15 @@ directly in `shell.json`. Defaults and ranges below come straight from
 **`apiBase` must be kept in sync with a custom `OLLAMA_HOST`.** The
 collector only ever probes `apiBase`; if you've pointed Ollama at a
 different host or port via `OLLAMA_HOST` and don't tell Colophon the same
-thing, a genuinely running server will read as `stopped` — Colophon has no
-way to discover it on its own.
+thing, Colophon has no way to discover the real server on its own — but
+which wrong status you see depends on *how* `OLLAMA_HOST` was set. Set it
+via a systemd override on the unit (`sudo systemctl edit ollama.service`,
+the method Ollama's own docs recommend for persisting it), and
+`ollama.service` stays genuinely `active`: the status resolves to
+`starting`, relabeling itself after 15 seconds to "started, but not
+answering on :11434" — it never reads `stopped`. Set it any other way,
+with the unit itself never started, and it reads `stopped` instead, because
+systemd genuinely has nothing running to report.
 
 ## Troubleshooting
 
@@ -230,9 +237,14 @@ serve`, or anything else bound to the same port. Stop and Restart are
 disabled in this state on purpose: systemd genuinely cannot stop a process
 it isn't tracking, so the widget doesn't offer to.
 
-**A server you know is running still reads as `stopped`.** Check that
-`apiBase` (above) actually matches wherever `OLLAMA_HOST` points. Colophon
-probes exactly one address; anything else is invisible to it.
+**A server you know is running still reads as `stopped`, or gets stuck on
+`starting`.** Check that `apiBase` (above) actually matches wherever
+`OLLAMA_HOST` points — Colophon probes exactly one address, and anything
+else is invisible to it. Which of the two you see depends on how
+`OLLAMA_HOST` was set: a systemd override keeps `ollama.service` itself
+`active`, so the status reads `starting` (relabeling after 15s to "started,
+but not answering on :11434") and never `stopped`; any other method, with
+the unit itself never started, reads as `stopped` instead.
 
 **Per-row model sizes add up to more than the total shown.** Expected, not
 a bug. Models on disk share blobs (layers) — a base weight file reused
