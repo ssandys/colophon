@@ -115,10 +115,9 @@ class ModelJsSyntaxTest(unittest.TestCase):
 
 
 class BarGlyphTest(unittest.TestCase):
-    """The bar glyph must be exactly the \\uF2DB escape, never a literal
-    glyph and never some other, still well-formed, escape.
+    """The bar glyph is defined once, in Model.js, and Panel.qml references it.
 
-    U+F2DB is a Nerd Font codepoint in the Unicode Private Use Area, and PUA
+    U+EE86 is a Nerd Font codepoint in the Unicode Private Use Area, and PUA
     characters do not survive every editing path. This project shipped a
     Panel.qml whose barIcon was an empty string: it parsed cleanly, registered
     its IPC handler, logged nothing, and rendered an invisible bar widget while
@@ -126,28 +125,55 @@ class BarGlyphTest(unittest.TestCase):
     diffable, and immune to the whole class of loss -- galley writes its glyph
     the same way for the same reason.
 
-    The non-empty and shape checks below are kept for their clearer failure
-    messages, but neither one alone closes the hole this test used to have:
-    they pass just as happily on the wrong glyph -- "A" fails both, but a
-    typo'd escape like "\\uF2DA" satisfies both while rendering a different
-    icon entirely. Only the exact-equality assertion catches that.
+    Two assertions, because there are two ways to break it. The value could be
+    wrong: empty, a literal character, or a well-formed but different escape --
+    "A" fails the shape check, but a typo like "\\uEE85" satisfies both
+    non-empty and shape while rendering a different icon, so only exact equality
+    catches it. Or Panel.qml could stop referencing the constant and reintroduce
+    a literal of its own, which is how the value came to live in four places
+    before this test existed.
     """
 
-    BAR_GLYPH = "\\uF2DB"   # U+F2DB nf-fa-microchip; see AGENTS.md trap #14
+    BAR_GLYPH = "\\uEE86"   # U+EE86 nf-fa-stamp; see AGENTS.md trap #14
 
-    def test_bar_icon_is_a_nonempty_escape(self):
-        match = re.search(r'property string barIcon:\s*"([^"]*)"', read("Panel.qml"))
-        self.assertIsNotNone(match, "Panel.qml declares no barIcon")
-        literal = match.group(1)
+    def model_js_glyph(self):
+        match = re.search(r'var BAR_GLYPH = "([^"]*)"', read("Model.js"))
+        self.assertIsNotNone(match, "Model.js defines no BAR_GLYPH")
+        return match.group(1)
+
+    def test_the_glyph_is_a_nonempty_escape(self):
+        literal = self.model_js_glyph()
         self.assertNotEqual(
-            literal, "", "barIcon is empty -- the bar renders nothing at all")
+            literal, "", "BAR_GLYPH is empty -- the bar renders nothing at all")
         self.assertRegex(
             literal, r"^\\u[0-9a-fA-F]{4}$",
-            "write barIcon as a \\uXXXX escape, not a literal glyph character")
+            "write BAR_GLYPH as a \\uXXXX escape, not a literal glyph character")
+
+    def test_the_glyph_is_the_intended_codepoint(self):
         self.assertEqual(
-            literal, self.BAR_GLYPH,
-            "barIcon is a well-formed escape but not the microchip glyph -- "
+            self.model_js_glyph(), self.BAR_GLYPH,
+            "BAR_GLYPH is a well-formed escape but not the stamp glyph -- "
             "did a typo or a copy/paste substitute a different codepoint?")
+
+    def test_panel_references_the_constant_rather_than_a_literal(self):
+        line = next((l for l in read("Panel.qml").splitlines()
+                     if "barIcon" in l and "property" in l), None)
+        self.assertIsNotNone(line, "Panel.qml declares no barIcon")
+        self.assertIn(
+            "Model.BAR_GLYPH", line,
+            "Panel.qml must bind barIcon to Model.BAR_GLYPH; a literal here is "
+            "how the codepoint came to be duplicated across four files")
+        self.assertNotIn(
+            '"', line,
+            "Panel.qml's barIcon carries a quoted literal again -- the glyph is "
+            "defined once, in Model.js")
+
+    def test_the_constant_is_exported_for_the_js_side(self):
+        # QML reads Model.js's top-level vars directly and ignores the export
+        # block, so a missing export breaks only node -- but that is where the
+        # value assertions above run, and a silently unexported constant would
+        # make them assert against nothing.
+        self.assertIn("BAR_GLYPH: BAR_GLYPH", read("Model.js"))
 
 
 class ColorPaletteTest(unittest.TestCase):

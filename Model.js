@@ -12,6 +12,17 @@ var COLOR_WARN = "#eab308"
 var COLOR_ERROR = "#ef4444"
 var COLOR_BUSY = "#3b82f6"
 
+// The bar glyph, defined once for the whole project: Panel.qml binds
+// root.barIcon to this rather than carrying its own literal, and
+// BarGlyphTest asserts both that this value is the intended escape and
+// that Panel.qml does not inline one of its own.
+//
+// U+EE86 is nf-fa-stamp -- a colophon is a printer's mark, and the sibling
+// plugin Galley wears a printer. Written as a \uXXXX escape and never as
+// the literal character: it is in the Unicode Private Use Area, and a PUA
+// character does not survive every editing path. See AGENTS.md trap #14.
+var BAR_GLYPH = "\uEE86"
+
 var BADGE_MAX = 9
 
 // How long `starting` may persist before the label admits the server is not
@@ -256,6 +267,7 @@ if (typeof module !== "undefined") {
     COLOR_WARN: COLOR_WARN,
     COLOR_ERROR: COLOR_ERROR,
     COLOR_BUSY: COLOR_BUSY,
+    BAR_GLYPH: BAR_GLYPH,
     BADGE_MAX: BADGE_MAX,
     STARTING_RELABEL_SEC: STARTING_RELABEL_SEC,
     STATUSES: STATUSES,

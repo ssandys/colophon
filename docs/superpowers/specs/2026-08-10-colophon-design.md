@@ -411,8 +411,11 @@ first step, not a formality.
 
 ### Bar widget
 
-Glyph `\uF2DB` — U+F2DB, Nerd Font microchip — always visible. Deliberately a BMP
-codepoint so it is a plain QML escape (`"\uF2DB"`) like galley's U+F02F `\uF02F` — the nicer
+Glyph `BAR_GLYPH` — defined once in `Model.js` as `\uEE86`, U+EE86, Nerd
+Font stamp — always visible. A colophon is the
+printer's mark at the end of a book, and the sibling plugin Galley (a printing
+proof) wears a printer; the pair reads as a set. Deliberately a BMP
+codepoint so it is a plain QML escape (`"\uEE86"`) like galley's U+F02F `\uF02F` — the nicer
 `nf-md-brain` is U+F09D1 and would need a surrogate pair in QML.
 
 | `status` | Glyph color | Badge |

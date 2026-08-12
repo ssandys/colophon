@@ -254,6 +254,16 @@ test("actionErrorText recognises every polkit refusal phrasing", () => {
   }
 })
 
+test("BAR_GLYPH is one BMP character, and the intended codepoint", () => {
+  // Asserted numerically, never against a pasted literal: U+EE86 is in the
+  // Private Use Area, and a literal here would be exactly the fragility the
+  // constant exists to avoid. Length 1 pins the single-escape property --
+  // a surrogate pair would be length 2 and would break the guard's regex.
+  assert.equal(typeof Model.BAR_GLYPH, "string")
+  assert.equal(Model.BAR_GLYPH.length, 1)
+  assert.equal(Model.BAR_GLYPH.codePointAt(0), 0xEE86)
+})
+
 test("Model.js holds no state between calls", () => {
   const first = Model.tooltipText(RUNNING, 1786726840)
   Model.badgeText(RUNNING)

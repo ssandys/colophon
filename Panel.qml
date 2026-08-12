@@ -15,7 +15,7 @@ Panel {
   moduleName: "ssandys.colophon"
   ipcTarget: "ssandys.colophon"
 
-  readonly property string barIcon: "\uF2DB"
+  readonly property string barIcon: Model.BAR_GLYPH
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(fg, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : "JetBrainsMono Nerd Font"
