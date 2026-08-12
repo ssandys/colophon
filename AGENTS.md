@@ -110,16 +110,24 @@ those, the guard is reading the comment at the site before you change it.
 The action surface is data-driven on purpose. To add one:
 
 1. Add the verb to `LIFECYCLE_VERBS` or `MODEL_VERBS` in
-   `scripts/colophon_action.py`.
+   `scripts/colophon_action.py`, as appropriate. Any verb that shells out to
+   `systemctl` — whichever tuple it lives in — must also end up in
+   `SYSTEMCTL_VERBS`: that's the tuple the `--no-ask-password` flag guard in
+   `tests/test_action.py` actually iterates, and a verb category that isn't
+   folded into it escapes the guard while the guard keeps passing (proven by
+   mutation testing during the boot-toggle review).
 2. Extend `plan()` so `--dry-run` prints the right steps for it.
 3. Add a `--dry-run` assertion in `tests/test_action.py` (see the existing
    `PlanTest`/`DryRunTest` cases for the pattern).
-4. Add a `Button` in `Panel.qml`, wired to
-   `service.runAction(verb, target, kind)`.
+4. Wire it into `Panel.qml`: a `Button` for most verbs, or a `ToggleSwitch`
+   for a verb pair that reflects an on/off state the way `enable`/`disable`
+   drives the boot switch.
 
-Nothing else changes. `runAction` in `Service.qml` already owns
-`actionInProgress`, `actionError`, the spawn-failure guard (trap #10), and
-the post-action settle ramp (traps #18/#19).
+`runAction` in `Service.qml` already owns `actionInProgress`, `actionError`,
+the spawn-failure guard (trap #10), and the post-action settle ramp (traps
+#18/#19) — and, since the boot toggle landed, `optimisticBootState` as well
+for any verb pair that needs its own optimistic value rather than reusing
+`optimisticStatus`.
 
 ## How to add a fixture state
 
@@ -156,7 +164,7 @@ and restart again to go back to touching the real system.
 - `./bin/test` runs everything: `jq` manifest validation, `bash -n` on the
   shell scripts, `qmllint` on every `*.qml`, `python3 -m unittest discover`,
   and `node --test tests/model.test.js`. As of this writing the Python
-  suite is 109 tests and the JavaScript suite is 23, with 0 skips in
+  suite is 121 tests and the JavaScript suite is 27, with 0 skips in
   either — read the counts off the actual output rather than trusting a
   number here, since both grow over time.
 
@@ -202,8 +210,8 @@ and restart again to go back to touching the real system.
 
 ## The standing safety rule
 
-**No test, script, or manual check may ever start, stop, or restart the
-real `ollama.service`, and none may pull or delete a model.** Every
+**No test, script, or manual check may ever start, stop, restart, enable, or
+disable the real `ollama.service`, and none may pull or delete a model.** Every
 privileged verb is asserted through `--dry-run` only in the automated
 suites. The one exception in this project's history is a small number of
 explicit, logged manual checks — recorded in the SDD ledger under Tasks 2,
@@ -256,4 +264,5 @@ this MVP:
 
 If you're fixing a bug and reach for one of these as part of the fix, stop
 — it's very likely the bug has been misdiagnosed as a missing feature.
-These were deferred deliberately, not accidentally.
+These were deferred deliberately, not accidentally — except item 1, which has
+since shipped; see its "Landed 2026-08-12" note above.

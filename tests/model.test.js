@@ -189,7 +189,7 @@ test("actionErrorText reports the action as not authorized", () => {
   assert.ok(Model.actionErrorText("x".repeat(400)).length <= 160)
 })
 
-test("bootLabel reports boot state without offering to change it", () => {
+test("bootLabel labels enabled and disabled, and hides the line when empty", () => {
   assert.equal(Model.bootLabel("disabled"), "disabled at boot")
   assert.equal(Model.bootLabel("enabled"), "enabled at boot")
   assert.equal(Model.bootLabel(""), "")

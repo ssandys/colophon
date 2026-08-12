@@ -252,7 +252,15 @@ Item {
         settleTimer.running = false
         settleTimer.ticks = 0
         root.optimisticStatus = ""
-        root.optimisticBootState = ""
+        // Guarded, unlike optimisticStatus above: a ramp left over from a
+        // PREVIOUS action can still be ticking when the user clicks the boot
+        // switch mid-ramp, starting a LATER action with its own optimistic
+        // value and its own dialog. An unguarded clear here would stomp that
+        // later value out from under the still-open dialog. If this branch
+        // skips the clear because an action is in flight, handleOutput clears
+        // it on the first poll after actionInProgress next empties -- guarded
+        // the same way there.
+        if (root.actionInProgress === "") root.optimisticBootState = ""
         root.expectedStop = false
       }
     }

@@ -265,6 +265,7 @@ Panel {
             PanelToolTip {
               visible: bootSwitch.containsMouse
               text: "Start ollama.service at boot -- does not start it now"
+              fontFamily: root.fontFamily
             }
           }
         }
