@@ -44,6 +44,20 @@ We chose not to install a deliberately over-broad rule on a working machine to t
 
 **The MVP decision is unaffected:** the grant demonstrably excludes everything outside its verb allow-list (`start`, `stop`, `restart`), per the freeze/stop test above. Whether `manage-unit-files` can be scoped is a separate design question and does not change the current scope or safety of the deployed grant.
 
+> **Moot as of 2026-08-11.** Everything above this note is left exactly as it
+> was recorded, because it is an accurate account of what was checked on
+> 2026-08-10 and of the reasoning at the time. But the question it declines to
+> answer no longer has anything riding on it. There is no deployed grant: the
+> rule and its installer are deleted, and Colophon now prompts through
+> Omarchy's own polkit agent. Nothing scopes a rule any more, so whether
+> `manage-unit-files` *could* be scoped stops being load-bearing — and the boot
+> toggle it was blocking is unblocked. See `AGENTS.md` trap #28 for the
+> corrected record, trap #30 for why the underlying premise was wrong at the
+> time of writing, and
+> `docs/superpowers/specs/2026-08-11-prompted-privilege-design.md` for the
+> change itself. The decision not to install a deliberately over-broad rule on
+> a working machine to settle a question was, and remains, the right call.
+
 ## The probe really is a no-op, confirmed after the fact
 
 The `stop` probe above ran against an already-inactive unit, which is the whole point of choosing it as the no-op verb — but "exit 0" alone doesn't prove nothing moved. The controller followed it with `systemctl is-active ollama.service` and got back `inactive`: the unit's state was exactly where it started. (This follow-up is recorded in the SDD ledger, from Task 2's second fix round; it is described here rather than reproduced as a fresh transcript, since re-running it today would capture today's state, not that session's.)
