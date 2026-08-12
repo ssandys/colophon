@@ -209,16 +209,64 @@ Panel {
           }
         }
 
-        // The one thing systemd tells us that this widget deliberately cannot
-        // change: enable/disable goes through manage-unit-files, which polkit
-        // cannot scope to a single unit. README gives the one-time command.
-        Text {
-          visible: text !== "" && root.status !== "missing"
-          text: Model.bootLabel(root.snap.unit ? root.snap.unit.unitFileState : "")
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+        // Boot state, and the switch that changes it. enable/disable go
+        // through manage-unit-files, which systemd invokes with no `unit`
+        // detail, so no polkit rule could ever scope it to this one unit --
+        // which is why this was read-only until 2026-08-12. Colophon installs
+        // no rule any more; it prompts. Prompted authorization has nothing to
+        // scope, so the missing detail stopped mattering. See AGENTS.md #28.
+        RowLayout {
+          Layout.fillWidth: true
           Layout.leftMargin: Style.space(14)
+          spacing: Style.space(6)
+          visible: bootText.text !== "" && root.status !== "missing"
+
+          Text {
+            id: bootText
+            text: Model.bootLabel(root.snap.unit ? root.snap.unit.unitFileState : "")
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Item { Layout.fillWidth: true }
+
+          ToggleSwitch {
+            id: bootSwitch
+
+            // Hidden for masked, static, enabled-runtime and anything else
+            // systemd will not simply flip -- those states show their label
+            // and offer no control.
+            visible: Model.bootIsToggleable(
+                       root.snap.unit ? root.snap.unit.unitFileState : "")
+
+            // The optimistic value when one is set, reality otherwise: the
+            // knob throws the instant it is clicked rather than waiting a
+            // poll. ToggleSwitch's own docs describe this pattern.
+            checked: service.optimisticBootState !== ""
+                     ? service.optimisticBootState === "enabled"
+                     : (root.snap.unit
+                        ? root.snap.unit.unitFileState === "enabled"
+                        : false)
+
+            // Swallows further clicks while a verb is in flight without
+            // dropping hover or tooltips on a background refresh.
+            busy: service.actionInProgress !== ""
+
+            foreground: root.fg
+
+            onToggled: service.runAction(checked ? "disable" : "enable", "", "")
+
+            // ToggleSwitch has no tooltipText property -- Button does, but this
+            // is not a Button. PanelToolTip is the shell's drop-in for exactly
+            // this: declare it inside the hovered item and bind `visible` to
+            // the hover state. ToggleSwitch exposes `containsMouse` as a
+            // readonly alias for that purpose.
+            PanelToolTip {
+              visible: bootSwitch.containsMouse
+              text: "Start ollama.service at boot -- does not start it now"
+            }
+          }
         }
 
         Text {
