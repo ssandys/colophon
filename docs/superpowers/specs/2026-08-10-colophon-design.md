@@ -662,6 +662,17 @@ to this spec's phase-2 boundary.
    a sudoers drop-in scoped to two exact command strings — because polkit cannot
    scope `manage-unit-files`. Reasoned about above; the panel already reports the
    state it would toggle.
+
+   **Corrected 2026-08-12: no second privilege mechanism is needed, and none is
+   planned.** This claim was already fixed once, in this file's own "Why the
+   boot toggle is not in the MVP" section (2026-08-11) and in `AGENTS.md` trap
+   #28, but survived unnoticed here in the Phase 2 list, contradicting both.
+   `enable`/`disable` would prompt through Omarchy's own agent exactly as
+   `start`/`stop`/`restart` already do — no rule, no sudoers drop-in, nothing
+   to scope. See trap #28 and
+   `docs/superpowers/specs/2026-08-11-prompted-privilege-design.md`. What is
+   left is UI only: the panel already reports boot state; making that line
+   clickable is the remaining work.
 2. **Journal log tail.** `journalctl -u ollama.service` is readable
    unprivileged, so this is scope, not capability. The failure *reason* is
    already in the MVP via `Result`.

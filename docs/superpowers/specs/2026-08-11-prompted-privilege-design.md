@@ -169,13 +169,19 @@ registered session, and a human finger. What is testable:
 - The inverted guards above.
 - The existing suite must stay green: 119 Python, 24 JavaScript, 0 skips.
 
-What must be verified by hand, and stated as unverified until it is:
+What was verified by hand — recorded here as the outcome, not as a pending
+question, now that the checks have run. Item 2 is corrected 2026-08-12; items
+1 and 3 held as written:
 
-1. With no rule installed, clicking **start** raises the Omarchy dialog and
-   offers fingerprint.
-2. After authenticating, clicking **stop** in the same session is silent.
-3. Dismissing the dialog surfaces a sensible message in the panel's error
-   strip, not a script name.
+1. Confirmed. With no rule installed, clicking **start** raised the Omarchy
+   dialog and offered fingerprint.
+2. ~~After authenticating, clicking **stop** in the same session is
+   silent.~~ **Corrected 2026-08-12: false.** Every verb prompts
+   independently — `systemctl` is its own short-lived polkit subject, so no
+   prior authentication carries over to it. See trap #31.
+3. Confirmed. Dismissing the dialog surfaced the panel's actual message,
+   `not authorized — the authentication prompt was dismissed or denied`, in
+   the error strip — not a script name.
 
 ## Known limitations
 
