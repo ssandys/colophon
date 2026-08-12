@@ -19,3 +19,39 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+## External dependencies
+
+Colophon vendors and redistributes **no third-party code**. Nothing here is
+copied from another project, and there are no pip or npm dependencies at
+runtime — the Python is standard-library only by design, the JavaScript is a
+plain ES5 subset, and the QML uses only components the Omarchy shell already
+provides. The MIT grant above therefore covers the entire contents of this
+repository.
+
+What Colophon does depend on is software already installed on the machine, which
+it invokes or reads. Each remains under its own license, held by its own authors:
+
+| Dependency | Arch package | How Colophon uses it | License |
+|---|---|---|---|
+| Ollama | `ollama` | The server itself. Read over its local HTTP API; `ollama --version` is the client-version fallback when the server is down | MIT |
+| systemd (`systemctl`) | `systemd` | Reads `ollama.service` state, and runs `start`, `stop`, `restart`, `enable`, `disable` on it | LGPL-2.1-or-later |
+| Python 3 | `python` | Runs the collector and action scripts | PSF-2.0 |
+| libnotify (`notify-send`) | `libnotify` | The "service died unexpectedly" desktop notification | LGPL-2.1-or-later |
+| Omarchy shell (Quickshell) | — | Hosts the widget; supplies the UI components and the polkit authentication agent | See the Omarchy project |
+
+Colophon also reads Ollama's on-disk model manifests and blobs under
+`/var/lib/ollama` to list installed models. It only reads them; it never writes
+to that path, and it never pulls or deletes a model.
+
+**Privilege.** Colophon installs no root-owned file and ships no polkit rule or
+sudoers drop-in. Privileged `systemctl` verbs authorize interactively through the
+Omarchy shell's own polkit agent, so every start, stop, restart, enable, and
+disable raises an authentication prompt. See the README for what this means in
+use.
+
+License identifiers above are stated for the dependency as packaged on Arch at
+the time of writing and are informational; each project's own license file
+governs.
