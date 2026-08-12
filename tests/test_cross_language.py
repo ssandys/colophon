@@ -277,7 +277,9 @@ class UnitNameTest(unittest.TestCase):
         # it would also cut a "#" inside a string literal, of which this file
         # has none.
         source = re.sub(r"#[^\n]*", "", read("scripts", "colophon_action.py"))
-        self.assertNotIn("--no-ask-password", source)
+        self.assertNotIn("--no-ask-password", source,
+            "the flag must not appear anywhere in the action script -- see "
+            "docs/superpowers/specs/2026-08-11-prompted-privilege-design.md")
 
 
 class ShowPropertyTest(unittest.TestCase):
