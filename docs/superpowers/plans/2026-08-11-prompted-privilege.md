@@ -165,7 +165,15 @@ class UnitNameTest(unittest.TestCase):
         # call site, a helper, a stray copy from galley -- is caught too.
         # Re-adding it converts every authentication dialog into a silent
         # "Access denied".
-        self.assertNotIn("--no-ask-password", read("scripts", "colophon_action.py"))
+        #
+        # Comments are stripped first, exactly as ModelJsSyntaxTest.code_only
+        # does for Model.js: systemctl_command's own comment names the flag in
+        # order to explain why it is absent, and prose *about* a banned
+        # construct must not trip the guard. The strip is deliberately naive --
+        # it would also cut a "#" inside a string literal, of which this file
+        # has none.
+        source = re.sub(r"#[^\n]*", "", read("scripts", "colophon_action.py"))
+        self.assertNotIn("--no-ask-password", source)
 ```
 
 Note the first method is renamed: it no longer reads the polkit rule, so its old name would lie.
