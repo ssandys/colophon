@@ -323,113 +323,7 @@ git commit -m "feat: boot state labels for every UnitFileState, and a toggleable
 
 ---
 
-## Task 3: The switch
-
-**Files:**
-- Modify: `Panel.qml:211-222` (the boot `Text` and the comment above it)
-- Test: none automated — `qmllint` parse gate only, for the reason below
-
-**Interfaces:**
-- Consumes: `Model.bootLabel(state)` and `Model.bootIsToggleable(state)` from Task 2; `service.runAction(verb, target, kind)` and `service.actionInProgress` which already exist; `service.optimisticBootState` from Task 4.
-- Produces: nothing later tasks consume.
-
-**Ordering note.** This task references `service.optimisticBootState`, which Task 4 creates. QML resolves properties at runtime, so an undefined property yields a binding warning rather than a parse error, and `qmllint` cannot see it either way. **Do not reorder Tasks 3 and 4 to "fix" this** — Task 4's step 1 wires the property and its clearing rule together, and splitting them would leave a half-wired bridge state, which is exactly how trap #18 and trap #19 were introduced. Implement 3, then 4, then verify by hand in Task 6.
-
-**Why no automated test.** `qmllint` here cannot resolve `qs.Ui` at all, so it sees neither `ToggleSwitch` nor a mistyped property on it. It reports parse errors only — and per trap #15 it reports them as a bare exit 255 with no message. This gate proves the file parses, nothing more.
-
-- [ ] **Step 1: Replace the boot line with a row carrying a switch**
-
-In `Panel.qml`, replace lines 211-222 — the comment and the `Text` — entirely:
-
-```qml
-        // Boot state, and the switch that changes it. enable/disable go
-        // through manage-unit-files, which systemd invokes with no `unit`
-        // detail, so no polkit rule could ever scope it to this one unit --
-        // which is why this was read-only until 2026-08-12. Colophon installs
-        // no rule any more; it prompts. Prompted authorization has nothing to
-        // scope, so the missing detail stopped mattering. See AGENTS.md #28.
-        RowLayout {
-          Layout.fillWidth: true
-          Layout.leftMargin: Style.space(14)
-          spacing: Style.space(6)
-          visible: bootText.text !== "" && root.status !== "missing"
-
-          Text {
-            id: bootText
-            text: Model.bootLabel(root.snap.unit ? root.snap.unit.unitFileState : "")
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-
-          Item { Layout.fillWidth: true }
-
-          ToggleSwitch {
-            id: bootSwitch
-
-            // Hidden for masked, static, enabled-runtime and anything else
-            // systemd will not simply flip -- those states show their label
-            // and offer no control.
-            visible: Model.bootIsToggleable(
-                       root.snap.unit ? root.snap.unit.unitFileState : "")
-
-            // The optimistic value when one is set, reality otherwise: the
-            // knob throws the instant it is clicked rather than waiting a
-            // poll. ToggleSwitch's own docs describe this pattern.
-            checked: service.optimisticBootState !== ""
-                     ? service.optimisticBootState === "enabled"
-                     : (root.snap.unit
-                        ? root.snap.unit.unitFileState === "enabled"
-                        : false)
-
-            // Swallows further clicks while a verb is in flight without
-            // dropping hover or tooltips on a background refresh.
-            busy: service.actionInProgress !== ""
-
-            foreground: root.fg
-
-            onToggled: service.runAction(checked ? "disable" : "enable", "", "")
-
-            // ToggleSwitch has no tooltipText property -- Button does, but this
-            // is not a Button. PanelToolTip is the shell's drop-in for exactly
-            // this: declare it inside the hovered item and bind `visible` to
-            // the hover state. ToggleSwitch exposes `containsMouse` as a
-            // readonly alias for that purpose.
-            PanelToolTip {
-              visible: bootSwitch.containsMouse
-              text: "Start ollama.service at boot -- does not start it now"
-            }
-          }
-        }
-```
-
-**On `onToggled`'s inverted-looking expression:** `checked` is the switch's *current* value at click time, so the verb is the opposite one. Reading `checked` after the click would depend on whether the component flips itself first — it does not, because it is stateless about the value by design. Do not "simplify" this to `checked ? "enable" : "disable"`.
-
-- [ ] **Step 2: Re-confirm the upstream API before trusting this plan's code**
-
-Run: `grep -n "property\|signal\|alias" /usr/share/omarchy/shell/Ui/ToggleSwitch.qml`
-
-Verified on 2026-08-12, and the reason this step exists is that `/usr/share/omarchy/` is overwritten wholesale on `omarchy update` (trap #29): `checked`, `busy`, `interactive`, `foreground`, `accent` are properties; `toggled()` is a signal; `containsMouse` is a `readonly property alias`. There is **no** `tooltipText` — that belongs to `Button`, which this is not.
-
-If any of those have changed since, stop and report rather than guessing at a replacement.
-
-- [ ] **Step 3: Confirm the file still parses**
-
-Run: `./bin/test`
-Expected: **121 Python + 27 JavaScript, 0 skips**, exit 0, and the `== qml syntax ==` gate prints `ok`.
-
-If `qmllint` exits 255 with no output, that is trap #15: a parse error with no message. Bisect by commenting out blocks of the block you just added, or run `qmlformat Panel.qml >/dev/null` which reports parse errors with an actual message where `qmllint` here does not.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add Panel.qml
-git commit -m "feat: a switch on the boot line"
-```
-
----
-
-## Task 4: The boot branch, and its own clearing rule
+## Task 3: The boot branch, and its own clearing rule
 
 **Files:**
 - Modify: `Service.qml` — add a property near line 39, a branch in `runAction` at line 144, and clearing in three existing sites (lines 122-123, 231-236, 290-293)
@@ -437,7 +331,7 @@ git commit -m "feat: a switch on the boot line"
 
 **Interfaces:**
 - Consumes: `Model.optimisticStatusFor(verb)` returning `""` for both boot verbs, pinned by Task 2's test.
-- Produces: `service.optimisticBootState` — `""`, `"enabled"`, or `"disabled"` — which Task 3's switch reads.
+- Produces: `service.optimisticBootState` — `""`, `"enabled"`, or `"disabled"` — which Task 4's switch reads.
 
 **The trap this task exists to not repeat.** `AGENTS.md` trap #19 records that `optimisticStatus` and `expectedStop` look like the same kind of bridge state but have **opposite failure costs**, and that giving them one shared clearing rule broke one of them. `optimisticBootState` is a third such value. Its failure cost: clearing early means the knob snaps back to its previous position for at most one poll — cheap, visible, self-correcting. Clearing late means the switch lies about system state. So it **fails safe toward reality** and clears on the first authoritative snapshot after the action completes, following `optimisticStatus` exactly and **not** `expectedStop`, which persists through a fixed six-tick ramp because its early-clear cost is a false critical alert.
 
@@ -554,6 +448,112 @@ Expected: **121 Python + 27 JavaScript, 0 skips**, exit 0, `== qml syntax ==` pr
 ```bash
 git add Service.qml
 git commit -m "feat: the boot branch, with its own clearing rule"
+```
+
+---
+
+## Task 4: The switch
+
+**Files:**
+- Modify: `Panel.qml:211-222` (the boot `Text` and the comment above it)
+- Test: none automated — `qmllint` parse gate only, for the reason below
+
+**Interfaces:**
+- Consumes: `Model.bootLabel(state)` and `Model.bootIsToggleable(state)` from Task 2; `service.runAction(verb, target, kind)` and `service.actionInProgress` which already exist; `service.optimisticBootState` from Task 3.
+- Produces: nothing later tasks consume.
+
+**Ordering note.** `service.optimisticBootState` already exists when this task runs — Task 3 created it along with its clearing rule. The original plan had these two tasks the other way round, which would have left this binding pointing at a property that did not exist yet; QML resolves properties at runtime, so that fails as a runtime binding warning rather than a parse error, and `qmllint` cannot see it either way. Swapped 2026-08-12 before execution. The dependency runs one way: Task 3 produces the property, this task consumes it.
+
+**Why no automated test.** `qmllint` here cannot resolve `qs.Ui` at all, so it sees neither `ToggleSwitch` nor a mistyped property on it. It reports parse errors only — and per trap #15 it reports them as a bare exit 255 with no message. This gate proves the file parses, nothing more.
+
+- [ ] **Step 1: Replace the boot line with a row carrying a switch**
+
+In `Panel.qml`, replace lines 211-222 — the comment and the `Text` — entirely:
+
+```qml
+        // Boot state, and the switch that changes it. enable/disable go
+        // through manage-unit-files, which systemd invokes with no `unit`
+        // detail, so no polkit rule could ever scope it to this one unit --
+        // which is why this was read-only until 2026-08-12. Colophon installs
+        // no rule any more; it prompts. Prompted authorization has nothing to
+        // scope, so the missing detail stopped mattering. See AGENTS.md #28.
+        RowLayout {
+          Layout.fillWidth: true
+          Layout.leftMargin: Style.space(14)
+          spacing: Style.space(6)
+          visible: bootText.text !== "" && root.status !== "missing"
+
+          Text {
+            id: bootText
+            text: Model.bootLabel(root.snap.unit ? root.snap.unit.unitFileState : "")
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          Item { Layout.fillWidth: true }
+
+          ToggleSwitch {
+            id: bootSwitch
+
+            // Hidden for masked, static, enabled-runtime and anything else
+            // systemd will not simply flip -- those states show their label
+            // and offer no control.
+            visible: Model.bootIsToggleable(
+                       root.snap.unit ? root.snap.unit.unitFileState : "")
+
+            // The optimistic value when one is set, reality otherwise: the
+            // knob throws the instant it is clicked rather than waiting a
+            // poll. ToggleSwitch's own docs describe this pattern.
+            checked: service.optimisticBootState !== ""
+                     ? service.optimisticBootState === "enabled"
+                     : (root.snap.unit
+                        ? root.snap.unit.unitFileState === "enabled"
+                        : false)
+
+            // Swallows further clicks while a verb is in flight without
+            // dropping hover or tooltips on a background refresh.
+            busy: service.actionInProgress !== ""
+
+            foreground: root.fg
+
+            onToggled: service.runAction(checked ? "disable" : "enable", "", "")
+
+            // ToggleSwitch has no tooltipText property -- Button does, but this
+            // is not a Button. PanelToolTip is the shell's drop-in for exactly
+            // this: declare it inside the hovered item and bind `visible` to
+            // the hover state. ToggleSwitch exposes `containsMouse` as a
+            // readonly alias for that purpose.
+            PanelToolTip {
+              visible: bootSwitch.containsMouse
+              text: "Start ollama.service at boot -- does not start it now"
+            }
+          }
+        }
+```
+
+**On `onToggled`'s inverted-looking expression:** `checked` is the switch's *current* value at click time, so the verb is the opposite one. Reading `checked` after the click would depend on whether the component flips itself first — it does not, because it is stateless about the value by design. Do not "simplify" this to `checked ? "enable" : "disable"`.
+
+- [ ] **Step 2: Re-confirm the upstream API before trusting this plan's code**
+
+Run: `grep -n "property\|signal\|alias" /usr/share/omarchy/shell/Ui/ToggleSwitch.qml`
+
+Verified on 2026-08-12, and the reason this step exists is that `/usr/share/omarchy/` is overwritten wholesale on `omarchy update` (trap #29): `checked`, `busy`, `interactive`, `foreground`, `accent` are properties; `toggled()` is a signal; `containsMouse` is a `readonly property alias`. There is **no** `tooltipText` — that belongs to `Button`, which this is not.
+
+If any of those have changed since, stop and report rather than guessing at a replacement.
+
+- [ ] **Step 3: Confirm the file still parses**
+
+Run: `./bin/test`
+Expected: **121 Python + 27 JavaScript, 0 skips**, exit 0, and the `== qml syntax ==` gate prints `ok`.
+
+If `qmllint` exits 255 with no output, that is trap #15: a parse error with no message. Bisect by commenting out blocks of the block you just added, or run `qmlformat Panel.qml >/dev/null` which reports parse errors with an actual message where `qmllint` here does not.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add Panel.qml
+git commit -m "feat: a switch on the boot line"
 ```
 
 ---
@@ -675,15 +675,15 @@ Return the unit to whatever state step 2 started from, then record the outcome o
 | `bootLabel` extended with the exact state table | 2 |
 | `bootIsToggleable`, true for exactly two states | 2 |
 | Unknown states render raw, never hidden | 2 |
-| `optimisticStatusFor` returns `""` for boot verbs | 2 (assertion), 4 (relied on) |
-| Bare `ToggleSwitch` beside the untouched caption | 3 |
-| Switch hidden for non-toggleable states | 3 |
-| `busy` bound to `actionInProgress` | 3 |
-| Tooltip carrying the boot/run distinction | 3 |
-| Stale `Panel.qml` comment deleted | 3 |
-| `optimisticBootState` with its own clearing rule | 4 |
-| No `expectedStop`, no `optimisticStatus` for boot verbs | 4 |
-| Dismissed dialog returns the knob | 4 (step 3), 6 (verified) |
+| `optimisticStatusFor` returns `""` for boot verbs | 2 (assertion), 3 (relied on) |
+| Bare `ToggleSwitch` beside the untouched caption | 4 |
+| Switch hidden for non-toggleable states | 4 |
+| `busy` bound to `actionInProgress` | 4 |
+| Tooltip carrying the boot/run distinction | 4 |
+| Stale `Panel.qml` comment deleted | 4 |
+| `optimisticBootState` with its own clearing rule | 3 |
+| No `expectedStop`, no `optimisticStatus` for boot verbs | 3 |
+| Dismissed dialog returns the knob | 3 (step 3), 6 (verified) |
 | README inverted, Troubleshooting line deleted | 5 |
 | Trap 28 dated note | 5 |
 | Three by-hand checks | 6 |
@@ -693,6 +693,6 @@ No gaps.
 
 **Placeholder scan:** clean — every code step carries the actual code, and the two "judge every hit" steps name the judgement criterion rather than deferring it.
 
-**Type consistency:** `optimisticBootState` is `""` / `"enabled"` / `"disabled"` in Task 4 and read as `service.optimisticBootState === "enabled"` in Task 3 — consistent. `bootIsToggleable` and `bootLabel` take the same single `unitFileState` argument in Tasks 2 and 3. `SYSTEMCTL_VERBS` is defined in Task 1 step 3 and consumed by Task 1 step 1's assertion — the test is written first and fails on the missing attribute, which is the intended red phase.
+**Type consistency:** `optimisticBootState` is `""` / `"enabled"` / `"disabled"` in Task 3 and read as `service.optimisticBootState === "enabled"` in Task 4 — consistent. `bootIsToggleable` and `bootLabel` take the same single `unitFileState` argument in Tasks 2 and 4. `SYSTEMCTL_VERBS` is defined in Task 1 step 3 and consumed by Task 1 step 1's assertion — the test is written first and fails on the missing attribute, which is the intended red phase.
 
 **Test counts:** 120 → 121 Python (Task 1 adds one) → 27 JavaScript (Task 2 adds three). Every task after Task 2 expects 121 + 27.
