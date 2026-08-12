@@ -36,7 +36,12 @@ KINDS = ("generate", "embed")
 DEFAULT_API_BASE = "http://127.0.0.1:11434"
 DEFAULT_KEEP_ALIVE_MIN = 5
 
-SYSTEMCTL_TIMEOUT_SEC = 30
+# The dialog's patience budget, not a command timeout: the call blocks while
+# Omarchy's authentication prompt is open. 30s was chosen when a prompt was
+# impossible, and is short for walking back to the desk -- the process would be
+# killed mid-authentication and the panel would report a timeout for something
+# the user was about to approve.
+SYSTEMCTL_TIMEOUT_SEC = 120
 API_TIMEOUT_SEC = 5
 
 # How long to wait for the port to bind after `systemctl start` -- genuinely
@@ -58,9 +63,14 @@ MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]+\Z")
 
 
 def systemctl_command(verb):
-    # --no-ask-password so a missing polkit grant fails immediately instead of
-    # hanging on a password prompt with no tty to type into.
-    return [SYSTEMCTL, "--no-ask-password", verb, UNIT_NAME]
+    # No --no-ask-password. That flag sets allow_interactive_authorization to
+    # false on the D-Bus call, so polkitd answers without ever consulting an
+    # agent -- which is what turns Omarchy's authentication dialog into a bare
+    # "Access denied". Omitting it lets polkitd raise the dialog, pam_fprintd
+    # takes a fingerprint, and auth_admin_keep covers the action for the rest
+    # of the session. No tty is involved at any point; polkit authentication
+    # has never gone through one.
+    return [SYSTEMCTL, verb, UNIT_NAME]
 
 
 def endpoint_for(kind):

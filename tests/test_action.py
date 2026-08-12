@@ -24,15 +24,21 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(
                     action.plan(verb, "", "generate", 5,
                                 "http://127.0.0.1:11434", False),
-                    ["/usr/bin/systemctl --no-ask-password " + verb
-                     + " ollama.service"])
+                    ["/usr/bin/systemctl " + verb + " ollama.service"])
 
-    def test_no_ask_password_is_always_present(self):
-        # Without it a missing grant hangs on a password prompt that has no tty
-        # to be typed into, instead of failing immediately.
+    def test_the_prompt_is_never_suppressed(self):
+        # --no-ask-password sets allow_interactive_authorization=false on the
+        # D-Bus call, which turns Omarchy's authentication dialog into a bare
+        # "Access denied". Re-adding it does not fail loudly -- every action
+        # silently becomes permission denied, with no error anywhere. The flag
+        # looks defensive, and galley is one copy-paste away, so this asserts
+        # its absence rather than trusting nobody re-adds it.
         for verb in ("start", "stop", "restart"):
-            self.assertIn("--no-ask-password",
-                          action.systemctl_command(verb))
+            with self.subTest(verb=verb):
+                self.assertNotIn(
+                    "--no-ask-password", action.systemctl_command(verb),
+                    "the prompt must not be suppressed -- see "
+                    "docs/superpowers/specs/2026-08-11-prompted-privilege-design.md")
 
     def test_warm_on_a_stopped_server_starts_waits_then_posts(self):
         steps = action.plan("warm", "llama3.2:3b", "generate", 5,
@@ -102,7 +108,7 @@ class DryRunTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
             result.stdout.strip(),
-            "/usr/bin/systemctl --no-ask-password start ollama.service")
+            "/usr/bin/systemctl start ollama.service")
 
     def test_dry_run_prints_the_maximal_warm_plan(self):
         # A dry run performs no I/O, so it cannot know whether the server is
