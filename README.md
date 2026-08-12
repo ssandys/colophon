@@ -11,7 +11,7 @@ dot, "2 models loaded" on the right, a "disabled at boot" note, and stop and
 restart buttons; a LOADED section listing qwen2.5:7b at 6.5 GB and
 deepseek-r1:latest at 9.9 GB, each marked GPU with a keep-alive countdown and
 an unload button; and an INSTALLED section headed "9 · 19.7 GB" listing the
-whole model store](docs/panel.png)
+whole model store](preview.png)
 
 Above: the busy state — two models resident on the GPU, their keep-alive
 timers counting down, and the bar glyph carrying a badge of `2`. The glyph's
