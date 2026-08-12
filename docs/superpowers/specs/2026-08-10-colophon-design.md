@@ -465,7 +465,7 @@ widget itself could not find out.
 | Malformed JSON | Same; never clears a good previous snapshot |
 | `systemctl show` fails | Error strip — D-Bus being broken is genuinely wrong |
 | API times out or refuses | `api.reachable = false`, feeds status resolution; not an error |
-| Action denied | Mapped to `permission denied — run sudo ./bin/install-privileges` |
+| Action denied | ~~Mapped to `permission denied — run sudo ./bin/install-privileges`~~ **Corrected 2026-08-12:** there is no installer to run. Mapped to `not authorized — the authentication prompt was dismissed or denied` — a refusal now means a dismissed dialog, not a missing setup step. See `docs/superpowers/specs/2026-08-11-prompted-privilege-design.md`. |
 | Action fails otherwise | Inline error under the action row, with stderr |
 | Helper fails to spawn | `onRunningChanged` guard clears `actionInProgress` (galley trap #10) |
 | `warm` on a mis-routed model | The API's own error, inline on the row |
