@@ -231,6 +231,13 @@ this MVP:
    exactly as the three lifecycle verbs already do (trap #28). What's left
    is UI, not privilege: the panel already reports boot state from
    `UnitFileState`; making that line clickable is the remaining work.
+
+   **Landed 2026-08-12.** That remaining work is done: `Panel.qml` renders
+   a `ToggleSwitch` beside the boot line for `enabled`/`disabled`,
+   `Service.qml` holds the optimistic boot state, and
+   `scripts/colophon_action.py` accepts `enable`/`disable`. This item is
+   retired, not merely unblocked — see trap #28 and
+   `docs/superpowers/specs/2026-08-12-boot-toggle-design.md`.
 2. **Journal log tail.** `journalctl -u ollama.service` is readable
    unprivileged, so this is scope, not capability. The failure *reason* is
    already in the MVP via `Result`.

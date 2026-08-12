@@ -362,6 +362,9 @@ scoped by exact command string, or moving all verbs to sudoers) were considered
 and rejected for the MVP in favour of keeping the grant provably narrow. The
 panel therefore **reports** boot state from `UnitFileState` but cannot change
 it; the README gives the one-time `sudo systemctl enable ollama` command.
+**Corrected 2026-08-12: it can, now** — a switch beside the boot line calls
+`enable`/`disable` directly; the manual command survives only as a README
+footnote. See `AGENTS.md` trap #28.
 
 **Status of that claim, 2026-08-10: still unverified, and deliberately so.**
 Distinguishing "systemd passes no `unit` detail with `manage-unit-files`" from
@@ -677,6 +680,10 @@ server reading as `foreign`, per-row sizes exceeding the total, running the
 collector by hand to see raw JSON); known limitations; uninstall, including
 removing the polkit rule.
 
+**Corrected 2026-08-12:** "why the widget cannot do it" is stale — it can,
+via the switch beside the boot line; see the README's current Boot start
+section.
+
 **`AGENTS.md`** — the layer map and the two invariants; a traps table seeded
 with the galley traps carried forward (#10 spawn failure, #11 `Process.command`
 while running, #12 cross-language duplication, #13 caller-owned diff state) plus
@@ -703,6 +710,16 @@ to this spec's phase-2 boundary.
    `docs/superpowers/specs/2026-08-11-prompted-privilege-design.md`. What is
    left is UI only: the panel already reports boot state; making that line
    clickable is the remaining work.
+
+   **Landed 2026-08-12.** That remaining work is done: Tasks 1-5 of the
+   boot-toggle implementation shipped the same day. `Model.bootLabel` and
+   `Model.bootIsToggleable` label and gate every `UnitFileState`,
+   `Panel.qml` renders a `ToggleSwitch` beside the boot line for `enabled`
+   and `disabled`, `Service.qml` holds the optimistic state, and
+   `scripts/colophon_action.py` accepts `enable`/`disable`. Phase 2 item 1
+   is retired, not merely re-scoped. See
+   `docs/superpowers/specs/2026-08-12-boot-toggle-design.md` and
+   `AGENTS.md` trap #28.
 2. **Journal log tail.** `journalctl -u ollama.service` is readable
    unprivileged, so this is scope, not capability. The failure *reason* is
    already in the MVP via `Result`.
@@ -730,7 +747,9 @@ deferred deliberately.
 
 - One local instance only. Remote or multiple `OLLAMA_HOST` targets are out of
   scope.
-- Boot state is reported, not settable — see phase 2 item 1.
+- ~~Boot state is reported, not settable — see phase 2 item 1.~~
+  **Corrected 2026-08-12: settable now.** The boot toggle landed the same
+  day; see phase 2 item 1's dated note and `AGENTS.md` trap #28.
 - `foreign` cannot distinguish a hand-run `ollama serve` from a container bound
   to `:11434`. It reports "not managed by systemd", which is true either way.
 - Per-model sizes sum that model's own layers while the total sums unique
