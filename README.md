@@ -112,24 +112,29 @@ models, 19.7 GB` while not.
 ## Boot start
 
 Ollama's unit ships `disabled`, matching the on-demand design: the server
-shouldn't come up automatically at boot. Colophon reports this state (look
-for "disabled at boot" / "enabled at boot" under the status line) but
-cannot change it from the panel. If you want it to start at boot anyway,
-this is a one-time command:
+shouldn't come up automatically at boot. The boot line under the status
+line shows the current state ("disabled at boot" / "enabled at boot")
+next to a switch — flip it to change whether `ollama.service` starts at
+boot.
+
+Each flip raises the same authentication dialog as Start, Stop, and
+Restart — every time, not just the first. There's nothing remembered
+between clicks, so expect a prompt on every flip.
+
+The switch only changes the boot setting, nothing else: enabling does not
+start the service right now, and disabling does not stop it. Use Start and
+Stop for that.
+
+Some boot states — `masked`, `static`, and a few others — show their label
+with no switch next to it. Systemd won't simply flip those, so there's
+nothing for a click to do.
+
+If you'd rather not use the switch, the equivalent terminal command still
+works:
 
 ```bash
 sudo systemctl enable ollama.service
 ```
-
-**Why the widget can't do this itself (yet):** enable/disable go through a
-different polkit action, `org.freedesktop.systemd1.manage-unit-files`, than
-the one start/stop/restart use. That distinction used to matter for a
-different reason — a passwordless rule can't be scoped to one unit for this
-action, so it was left out to keep that rule provably narrow — but Colophon
-no longer installs a rule at all, so the concern no longer applies:
-authorization is prompted, not granted, for every verb. The boot toggle is
-simply not built yet; it's a follow-up, not a limitation of the
-authentication model.
 
 ## Configuration
 
@@ -226,8 +231,6 @@ readable.
 
 - One local Ollama instance only; remote or multiple `OLLAMA_HOST` targets
   are out of scope.
-- Boot state is reported, not settable, from the widget — see Boot start,
-  above.
 - `foreign` cannot distinguish a hand-run `ollama serve` from any other
   process bound to the same port. It reports "not managed by systemd,"
   which is true either way.

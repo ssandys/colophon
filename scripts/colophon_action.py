@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Perform one Colophon action.
 
-  colophon_action.py start|stop|restart                          [--dry-run]
+  colophon_action.py start|stop|restart|enable|disable            [--dry-run]
   colophon_action.py warm   <model> [--kind K] [--keep-alive MIN] [--dry-run]
   colophon_action.py unload <model> [--kind K]                    [--dry-run]
 
