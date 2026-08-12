@@ -415,17 +415,17 @@ git commit -m "docs: correct the record after deleting the polkit rule"
 
 Preconditions, both already true and worth re-confirming: no rule at `/etc/polkit-1/rules.d/49-colophon-ollama.rules`, and `ollama.service` inactive.
 
-- [ ] **Step 1: Deploy**
+- [x] **Step 1: Deploy**
 
 ```bash
 cd ~/Src/colophon && ./bin/install && omarchy restart shell
 ```
 
-- [ ] **Step 2: First action raises the dialog**
+- [x] **Step 2: First action raises the dialog**
 
 Open the panel, click **start**. Expect Omarchy's themed authentication dialog, offering fingerprint. Authenticate; the service should start and the panel should move through `starting…` to `running`.
 
-- [ ] **Step 3: The second action prompts again (corrected 2026-08-12)**
+- [x] **Step 3: The second action prompts again (corrected 2026-08-12)**
 
 Click **stop**. Expect Omarchy's authentication dialog to appear **again**.
 `systemctl` is its own short-lived polkit subject and exits within the same
@@ -441,11 +441,11 @@ dialog, on the premise that the session's authorization from step 2 covered
 it. That premise is false — see the amendment at the top of this plan — so
 if you see no dialog here, that is the failure, not the pass.)
 
-- [ ] **Step 4: A dismissed dialog reads sensibly**
+- [x] **Step 4: A dismissed dialog reads sensibly**
 
 Click **start**, then dismiss the dialog without authenticating. Expect the panel's error strip to say the action was not authorized, with no mention of a script or a missing rule, and the button to become clickable again rather than staying disabled.
 
-- [ ] **Step 5: Report what happened**
+- [x] **Step 5: Report what happened**
 
 Record the outcome of each step in the spec's "Testing" section, marking each verified or not. Do not mark anything verified that was not observed on screen.
 

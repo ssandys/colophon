@@ -169,26 +169,29 @@ registered session, and a human finger. What is testable:
 - The inverted guards above.
 - The existing suite must stay green: 119 Python, 24 JavaScript, 0 skips.
 
-What was to be verified by hand, and what each check actually returned. Two of
-the three have run; the third has not, and is marked so rather than assumed:
+What was to be verified by hand, and what each check actually returned. All
+three have now run, on 2026-08-12, against the deployed dev build:
 
-1. **Confirmed 2026-08-12**, by the owner in normal use. With no rule
-   installed, clicking **start** raises the Omarchy dialog and offers
-   fingerprint.
+1. **Confirmed**, by the owner in normal use. With no rule installed, clicking
+   **start** raises the Omarchy dialog and offers fingerprint.
 2. ~~After authenticating, clicking **stop** in the same session is
-   silent.~~ **Corrected 2026-08-12: false.** Every verb prompts
-   independently — `systemctl` is its own short-lived polkit subject, so no
-   prior authentication carries over to it. See trap #31.
-3. **Still unverified.** Nobody has dismissed the dialog and then looked at
-   the error strip. What *is* verified is the layer below it: `tests/
-   model.test.js` pins `actionErrorText`'s output for every polkit refusal
-   phrasing, so the string is known to be `not authorized — the
-   authentication prompt was dismissed or denied`. What remains unobserved is
-   whether that string reaches the panel's error strip on a real dismissal.
-   The gap is small and the wiring is unchanged from the previous error path,
-   but "small" is not "checked" — an earlier defect on this project was a
-   `barIcon` that had silently become an empty string while 131 tests passed.
-   This line stays as written until someone dismisses a dialog and looks.
+   silent.~~ **Corrected: false.** Every verb prompts independently —
+   `systemctl` is its own short-lived polkit subject, so no prior
+   authentication carries over to it. See trap #31.
+3. **Confirmed**, by the owner, dismissing a real dialog and reading the
+   panel. The error strip shows the action was not authorized, with no script
+   name and no missing-rule language, and the button recovers. Recorded as the
+   owner's on-screen observation — "looks good" — not as a transcript.
+
+   This line was briefly marked confirmed on a controller's word before anyone
+   had looked, and was restored to unverified when the implementer writing it
+   flagged that it could not check the claim itself. It was right to. The
+   layers are worth keeping distinct: `tests/model.test.js` pins
+   `actionErrorText`'s output for every polkit refusal phrasing, so the
+   *string* was always guarded; what needed a human was whether it reaches the
+   error strip. An earlier defect on this project was a `barIcon` that had
+   silently become an empty string while 131 tests passed — which is why
+   "small gap, unchanged wiring" was not accepted as a substitute for looking.
 
 ## Known limitations
 
