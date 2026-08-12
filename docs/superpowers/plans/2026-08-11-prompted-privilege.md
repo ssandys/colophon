@@ -2,13 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Delete Colophon's polkit rule and installer, and let Omarchy's own authentication dialog authorize `systemctl` instead — one fingerprint per login.
+> **Amendment, 2026-08-12:** Task 5's on-machine verification found this plan's central retention premise false. polkit scopes an `auth_admin_keep` grant to `unix-process:PID:STARTTIME`, reusable only while that exact process lives; `systemctl` is always its own short-lived subject and exits within the same second, so no grant from one call ever survives to the next, and no logind session is resolvable as a fallback either (Omarchy runs the compositor under `user@1000.service`, not inside a `session-N.scope`). **Every start, stop, and restart prompts — there is no "one fingerprint per login" and no "second action is silent."** See `AGENTS.md` trap #31 for the full mechanism. This is accepted and documented, not a defect to fix. The plan as originally written (the Goal below, the Spec pointer, Task 1's ported code comment, Task 4's README replacement text, and Task 5's steps 3–4) told the retention story; those passages were corrected on 2026-08-12 to match trap #31. Task 5 was still open when this was found — follow its corrected steps below, not the original ones.
+
+**Goal:** Delete Colophon's polkit rule and installer, and let Omarchy's own authentication dialog authorize `systemctl` instead — a prompt on every start, stop, and restart, not one fingerprint per login (see the 2026-08-12 amendment above).
 
 **Architecture:** One line does the work. `colophon_action.py` stops sending `--no-ask-password`, which flips `allow_interactive_authorization` to true on the D-Bus call; `polkitd` then invokes the shell's registered agent. Everything else in this plan is deleting what the flag existed to support, inverting the guards that pinned it, and correcting a design record built on a false premise.
 
 **Tech Stack:** Python 3 stdlib, ES5-subset JavaScript, QML, systemd/polkit.
 
-**Spec:** `docs/superpowers/specs/2026-08-11-prompted-privilege-design.md`. Read it first — it carries the evidence for every claim below, including the `pkcheck` transcript and the observation that a second verb is silent.
+**Spec:** `docs/superpowers/specs/2026-08-11-prompted-privilege-design.md`. Read it first — it carries the evidence for every claim below, including the `pkcheck` transcript. **Note the 2026-08-12 amendment above:** the transcript's subject was the invoking shell, not `systemctl`, so it says nothing about whether a second verb prompts — it does, every time. See `AGENTS.md` trap #31.
 
 ## Global Constraints
 
@@ -97,12 +99,16 @@ def systemctl_command(verb):
     # No --no-ask-password. That flag sets allow_interactive_authorization to
     # false on the D-Bus call, so polkitd answers without ever consulting an
     # agent -- which is what turns Omarchy's authentication dialog into a bare
-    # "Access denied". Omitting it lets polkitd raise the dialog, pam_fprintd
-    # takes a fingerprint, and auth_admin_keep covers the action for the rest
-    # of the session. No tty is involved at any point; polkit authentication
-    # has never gone through one.
+    # "Access denied". Omitting it lets polkitd raise the dialog and
+    # pam_fprintd take a fingerprint -- but every call still prompts:
+    # systemctl is its own short-lived polkit subject and exits within the
+    # same second, so there is no auth_admin_keep grant left alive to reuse.
+    # See AGENTS.md trap #31. No tty is involved at any point; polkit
+    # authentication has never gone through one.
     return [SYSTEMCTL, verb, UNIT_NAME]
 ```
+
+**Corrected 2026-08-12:** the code block above is what the comment should say, and what the shipped code says (see `AGENTS.md` trap #31). The plan originally specified a version claiming `auth_admin_keep` "covers the action for the rest of the session" — that clause was the same false retention premise this amendment corrects, and it is not what to implement if you are following this plan fresh.
 
 And line 39:
 
@@ -309,12 +315,14 @@ Delete, in `README.md`:
 Replace the grant paragraph with a short statement of the new model:
 
 ```markdown
-**Authentication.** Start, stop, and restart act on a *system* unit, so the
-first one each login raises Omarchy's authentication dialog — fingerprint if
-you have one enrolled, password otherwise. Authorization is then retained for
-the session, so a start and a later stop don't ask twice. Nothing to install,
-and Colophon can't touch the service without you approving it that session.
+**Authentication.** Start, stop, and restart act on a *system* unit, so
+**every** one of them raises Omarchy's authentication dialog — fingerprint if
+you have one enrolled, password otherwise. Expect one prompt per click, not
+one per login. Nothing to install, and Colophon can't touch the service
+without you approving each action.
 ```
+
+**Corrected 2026-08-12:** the paragraph above is what shipped, and it is correct. The plan originally specified text claiming authorization was "retained for the session, so a start and a later stop don't ask twice" — that was the same false retention premise this amendment corrects (see `AGENTS.md` trap #31), and it is not what to write if you are following this plan fresh.
 
 Then re-read the surrounding text: the Install section previously flowed into the grant step, and the Uninstall section previously opened with "Remove the polkit rule *first*." Both need their connective sentences repaired, not just the blocks removed.
 
@@ -417,15 +425,25 @@ cd ~/Src/colophon && ./bin/install && omarchy restart shell
 
 Open the panel, click **start**. Expect Omarchy's themed authentication dialog, offering fingerprint. Authenticate; the service should start and the panel should move through `starting…` to `running`.
 
-- [ ] **Step 3: The second action is silent**
+- [ ] **Step 3: The second action prompts again (corrected 2026-08-12)**
 
-Click **stop**. Expect **no dialog** — the session's authorization covers it — and no `Ollama stopped` notification either, since you asked for the stop. That second half also re-checks the `expectedStop` race that took three fix rounds.
+Click **stop**. Expect Omarchy's authentication dialog to appear **again**.
+`systemctl` is its own short-lived polkit subject and exits within the same
+second it's authorized, so nothing from the start in step 2 survives to
+cover this call — see `AGENTS.md` trap #31. **A second prompt is the
+correct, passing result here, not a failure.** Authenticate; the service
+should stop as expected, and there should be no `Ollama stopped`
+notification, since you asked for the stop yourself. That second half also
+re-checks the `expectedStop` race that took three fix rounds.
+
+(This step originally read "The second action is silent" and expected **no**
+dialog, on the premise that the session's authorization from step 2 covered
+it. That premise is false — see the amendment at the top of this plan — so
+if you see no dialog here, that is the failure, not the pass.)
 
 - [ ] **Step 4: A dismissed dialog reads sensibly**
 
 Click **start**, then dismiss the dialog without authenticating. Expect the panel's error strip to say the action was not authorized, with no mention of a script or a missing rule, and the button to become clickable again rather than staying disabled.
-
-This step needs a fresh authorization to be meaningful. If step 3 already cached one, the dialog won't reappear — log out and back in first, or accept that this check waits for the next session.
 
 - [ ] **Step 5: Report what happened**
 

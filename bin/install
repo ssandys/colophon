@@ -18,7 +18,7 @@ DEST="$HOME/.config/omarchy/plugins/$DEV_ID"
 mkdir -p "$DEST"
 rsync -a --delete \
   --exclude '.git' --exclude 'tests' --exclude 'bin' --exclude 'docs' \
-  --exclude 'polkit' --exclude '__pycache__' --exclude '.pytest_cache' \
+  --exclude '__pycache__' --exclude '.pytest_cache' \
   --exclude '.github' --exclude '.superpowers' --exclude '.gitignore' \
   --exclude 'README.md' --exclude 'AGENTS.md' --exclude 'CONTRIBUTING.md' \
   "$SRC/" "$DEST/"

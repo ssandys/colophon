@@ -66,10 +66,12 @@ def systemctl_command(verb):
     # No --no-ask-password. That flag sets allow_interactive_authorization to
     # false on the D-Bus call, so polkitd answers without ever consulting an
     # agent -- which is what turns Omarchy's authentication dialog into a bare
-    # "Access denied". Omitting it lets polkitd raise the dialog, pam_fprintd
-    # takes a fingerprint, and auth_admin_keep covers the action for the rest
-    # of the session. No tty is involved at any point; polkit authentication
-    # has never gone through one.
+    # "Access denied". Omitting it lets polkitd raise the dialog and
+    # pam_fprintd take a fingerprint -- but every call still prompts:
+    # systemctl is its own short-lived polkit subject and exits within the
+    # same second, so there is no auth_admin_keep grant left alive to reuse.
+    # See AGENTS.md trap #31. No tty is involved at any point; polkit
+    # authentication has never gone through one.
     return [SYSTEMCTL, verb, UNIT_NAME]
 
 

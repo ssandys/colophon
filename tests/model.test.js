@@ -178,7 +178,7 @@ test("optimisticStatusFor drives the instant-feedback override", () => {
   assert.equal(Model.optimisticStatusFor("unload"), "")
 })
 
-test("actionErrorText turns the polkit refusal into the fix", () => {
+test("actionErrorText reports the action as not authorized", () => {
   const denied = Model.actionErrorText(
     "Failed to start ollama.service: Interactive authentication required.")
   assert.match(denied, /not authorized/)

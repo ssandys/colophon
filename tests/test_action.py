@@ -101,6 +101,20 @@ class TimeoutConstantsTest(unittest.TestCase):
                            action.API_WAIT_DEADLINE_SEC)
         self.assertGreaterEqual(action.LOAD_POST_TIMEOUT_SEC, 120)
 
+    def test_the_systemctl_timeout_gives_a_human_time_to_authenticate(self):
+        # This call now blocks on Omarchy's authentication dialog, not just
+        # systemd -- a human has to notice the prompt and walk back to a
+        # fingerprint sensor. 30s was fine when the call was non-interactive;
+        # it is not enough now. Lowering this back toward 30 kills the
+        # subprocess mid-authentication and reports a timeout for an action
+        # the user was in the middle of approving, not a real failure.
+        self.assertGreaterEqual(
+            action.SYSTEMCTL_TIMEOUT_SEC, 120,
+            "SYSTEMCTL_TIMEOUT_SEC must budget for a human walking to a "
+            "fingerprint sensor -- dropping it back toward the old 30s "
+            "non-interactive value kills the action mid-authentication and "
+            "reports a timeout for something the user was about to approve")
+
 
 class DryRunTest(unittest.TestCase):
     def test_start_prints_the_command_and_exits_zero(self):

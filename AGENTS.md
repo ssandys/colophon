@@ -18,8 +18,9 @@ claim, but that claim's verification status stopped mattering once the
 privilege mechanism it was scoping stopped existing — see trap #28, below,
 for the corrected record. Two findings recorded in the SDD
 ledger but missing from the verification doc as of this file's writing have
-since been added there: the post-`--check` `systemctl is-active`
-confirmation that the probe is a genuine no-op, and the finding that
+since been added there: the `systemctl is-active` confirmation that ran
+after `--check` (a flag of the now-deleted `bin/install-privileges`) to
+prove the probe was a genuine no-op, and the finding that
 systemd resets `ExecMainStartTimestampMonotonic` and `MemoryCurrent` on
 stop (trap #21, below) — which is why the `stopped` fixture legitimately
 has both unset rather than being a stale capture.
