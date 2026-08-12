@@ -118,7 +118,7 @@ SYSTEMCTL_TIMEOUT_SEC = 120
 - [ ] **Step 5: Run the tests and watch them pass**
 
 Run: `python3 -m unittest tests.test_action -v`
-Expected: PASS, 30 tests.
+Expected: PASS, 31 tests.
 
 - [ ] **Step 6: Confirm the dry run shows the new command**
 
