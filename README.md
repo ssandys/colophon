@@ -2,16 +2,16 @@
 
 Colophon is an Omarchy shell bar widget that shows the state of your local
 Ollama server — running, stopped, or something in between — and lets you
-start it, stop it, restart it, and load or unload models, without leaving
-the bar.
+start it, stop it, restart it, choose whether it starts at boot, and load or
+unload models, without leaving the bar.
 
 ![The Colophon panel open below the bar: a header reading "Colophon" beside
-"ollama 0.32.7"; a status line "running · up 18h 48m · 3.5 GB" with a green
-dot, "2 models loaded" on the right, a "disabled at boot" note, and stop and
-restart buttons; a LOADED section listing qwen2.5:7b at 6.5 GB and
-deepseek-r1:latest at 9.9 GB, each marked GPU with a keep-alive countdown and
-an unload button; and an INSTALLED section headed "9 · 19.7 GB" listing the
-whole model store](preview.png)
+"ollama 0.32.9"; a status line "running · up 4h 10m · 5.0 GB" with a green
+dot and "2 models loaded" on the right; an "enabled at boot" line with a
+switch beside it, shown on; stop and restart buttons; a LOADED section listing
+muse-glimmer:latest at 16.7 GB and deepseek-r1:latest at 9.9 GB, each marked
+GPU with a keep-alive countdown and an unload button; and an INSTALLED section
+headed "11 · 50.7 GB" listing the model store](preview.png)
 
 Above: the busy state — two models resident on the GPU, their keep-alive
 timers counting down, and the bar glyph carrying a badge of `2`. The glyph's
@@ -101,6 +101,9 @@ models, 19.7 GB` while not.
   than reporting a false timeout while the load is still quietly succeeding.
   The row reads "warming…" and the status line reads "starting…" for as long
   as either step takes.
+- **The switch on the boot line** decides whether `ollama.service` starts at
+  boot. It moves the instant you click it, then asks you to authenticate — see
+  Boot start below for what it does and does not change.
 - **`✕`** next to a loaded model unloads it immediately, freeing its memory.
 - **`r`** refreshes the panel right away.
 - **`esc`** closes the panel.
