@@ -30,6 +30,11 @@ UNIT_NAME = "ollama.service"
 SYSTEMCTL = "/usr/bin/systemctl"
 
 LIFECYCLE_VERBS = ("start", "stop", "restart")
+BOOT_VERBS = ("enable", "disable")
+# Every verb that shells out to systemctl. The flag guard in
+# tests/test_action.py iterates this rather than LIFECYCLE_VERBS so a new verb
+# category cannot ship without the --no-ask-password assertion covering it.
+SYSTEMCTL_VERBS = LIFECYCLE_VERBS + BOOT_VERBS
 MODEL_VERBS = ("warm", "unload")
 KINDS = ("generate", "embed")
 
@@ -90,7 +95,7 @@ def load_body(model, kind, keep_alive):
 
 def plan(verb, target, kind, keep_alive_min, api_base, running):
     """The steps this verb would perform, as human-readable lines."""
-    if verb in LIFECYCLE_VERBS:
+    if verb in SYSTEMCTL_VERBS:
         return [" ".join(systemctl_command(verb))]
 
     base = str(api_base).rstrip("/")
@@ -180,7 +185,7 @@ def run_systemctl(verb):
 
 
 def execute(verb, target, kind, keep_alive_min, api_base):
-    if verb in LIFECYCLE_VERBS:
+    if verb in SYSTEMCTL_VERBS:
         return run_systemctl(verb)
 
     if verb == "warm" and not api_reachable(api_base):
@@ -228,7 +233,7 @@ def main(argv):
                 "colophon_action: unknown argument '" + arg + "'\n")
             return 2
 
-    if verb not in LIFECYCLE_VERBS + MODEL_VERBS:
+    if verb not in SYSTEMCTL_VERBS + MODEL_VERBS:
         sys.stderr.write("colophon_action: unknown verb '" + verb + "'\n")
         return 2
     if kind not in KINDS:

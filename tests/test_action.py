@@ -26,6 +26,18 @@ class PlanTest(unittest.TestCase):
                                 "http://127.0.0.1:11434", False),
                     ["/usr/bin/systemctl " + verb + " ollama.service"])
 
+    def test_boot_verbs_are_one_systemctl_call(self):
+        # enable/disable go through manage-unit-files rather than manage-units,
+        # but the constructed command is the same shape: one systemctl call,
+        # no flag. They never touch run state, so plan() must not add a start
+        # step the way `warm` does on a stopped server.
+        for verb in ("enable", "disable"):
+            with self.subTest(verb=verb):
+                self.assertEqual(
+                    action.plan(verb, "", "generate", 5,
+                                "http://127.0.0.1:11434", False),
+                    ["/usr/bin/systemctl " + verb + " ollama.service"])
+
     def test_the_prompt_is_never_suppressed(self):
         # --no-ask-password sets allow_interactive_authorization=false on the
         # D-Bus call, which turns Omarchy's authentication dialog into a bare
@@ -33,7 +45,15 @@ class PlanTest(unittest.TestCase):
         # silently becomes permission denied, with no error anywhere. The flag
         # looks defensive, and galley is one copy-paste away, so this asserts
         # its absence rather than trusting nobody re-adds it.
-        for verb in ("start", "stop", "restart"):
+        #
+        # This iterates SYSTEMCTL_VERBS, not LIFECYCLE_VERBS, deliberately: the
+        # guard's contract is every verb that shells out to systemctl. A new
+        # verb category added to its own tuple would otherwise ship unguarded
+        # while this test kept passing.
+        self.assertEqual(action.SYSTEMCTL_VERBS,
+                         action.LIFECYCLE_VERBS + action.BOOT_VERBS,
+                         "SYSTEMCTL_VERBS must cover every systemctl verb")
+        for verb in action.SYSTEMCTL_VERBS:
             with self.subTest(verb=verb):
                 self.assertNotIn(
                     "--no-ask-password", action.systemctl_command(verb),
