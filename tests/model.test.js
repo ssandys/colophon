@@ -266,6 +266,51 @@ test("BAR_GLYPH is one BMP character, and the intended codepoint", () => {
   assert.equal(Model.BAR_GLYPH.codePointAt(0), 0xEE86)
 })
 
+test("bootLabel names every state it knows and never hides an unknown one", () => {
+  assert.equal(Model.bootLabel("enabled"), "enabled at boot")
+  assert.equal(Model.bootLabel("disabled"), "disabled at boot")
+  assert.equal(Model.bootLabel("enabled-runtime"), "enabled until reboot")
+  assert.equal(Model.bootLabel("masked"), "masked")
+  assert.equal(Model.bootLabel("masked-runtime"), "masked")
+  // static means the unit has no [Install] section, so there is nothing to
+  // enable or disable -- not a state the user could change.
+  assert.equal(Model.bootLabel("static"), "no boot setting")
+  assert.equal(Model.bootLabel("generated"), "generated unit")
+  assert.equal(Model.bootLabel("transient"), "transient unit")
+  // An unrecognised state renders raw rather than vanishing. A line that
+  // disappears reads as a bug -- that is the defect this feature fixes, and
+  // it must not come back for values this table does not list.
+  assert.equal(Model.bootLabel("linked"), "linked")
+  assert.equal(Model.bootLabel("indirect"), "indirect")
+  assert.equal(Model.bootLabel("some-future-systemd-state"),
+               "some-future-systemd-state")
+  // Only genuinely absent state hides the line.
+  assert.equal(Model.bootLabel(""), "")
+  assert.equal(Model.bootLabel(undefined), "")
+  assert.equal(Model.bootLabel(null), "")
+})
+
+test("bootIsToggleable is true for exactly the two states systemd can flip", () => {
+  assert.equal(Model.bootIsToggleable("enabled"), true)
+  assert.equal(Model.bootIsToggleable("disabled"), true)
+  for (const state of ["enabled-runtime", "masked", "masked-runtime", "static",
+                       "generated", "transient", "linked", "linked-runtime",
+                       "alias", "indirect", "bad", "", "unknown"]) {
+    assert.equal(Model.bootIsToggleable(state), false, state)
+  }
+  assert.equal(Model.bootIsToggleable(undefined), false)
+  assert.equal(Model.bootIsToggleable(null), false)
+})
+
+test("optimisticStatusFor stays silent for the boot verbs", () => {
+  // enable/disable change nothing about run state. Returning a run status here
+  // would make the panel claim the service was starting when it was not --
+  // and would arm the wrong bridge state. See AGENTS.md trap #19: the boot
+  // toggle's optimistic value is separate, with its own clearing rule.
+  assert.equal(Model.optimisticStatusFor("enable"), "")
+  assert.equal(Model.optimisticStatusFor("disable"), "")
+})
+
 test("Model.js holds no state between calls", () => {
   const first = Model.tooltipText(RUNNING, 1786726840)
   Model.badgeText(RUNNING)

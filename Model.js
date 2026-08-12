@@ -114,10 +114,38 @@ function statusLabel(status, secondsInState) {
   return String(status || "")
 }
 
+// systemd's UnitFileState has far more values than enabled/disabled. Returning
+// "" for the rest hid the line completely, which reads as a widget bug -- a
+// masked unit showed nothing at all. Unknown values now render raw so a state
+// this table does not anticipate is visible rather than silent.
+var BOOT_LABELS = {
+  "enabled": "enabled at boot",
+  "disabled": "disabled at boot",
+  "enabled-runtime": "enabled until reboot",
+  "masked": "masked",
+  "masked-runtime": "masked",
+  // No [Install] section, so there is nothing to enable or disable.
+  "static": "no boot setting",
+  "generated": "generated unit",
+  "transient": "transient unit"
+}
+
 function bootLabel(unitFileState) {
-  if (unitFileState === "enabled") return "enabled at boot"
-  if (unitFileState === "disabled") return "disabled at boot"
-  return ""
+  var state = String(unitFileState === undefined || unitFileState === null
+                     ? "" : unitFileState)
+  if (state === "") return ""
+  var known = BOOT_LABELS[state]
+  return known === undefined ? state : known
+}
+
+// Only enabled and disabled can be flipped. enable on a masked or static unit
+// fails, and enabled-runtime has no unambiguous meaning for a click -- it
+// would have to choose between making it permanent and clearing it. Those
+// states show their label with no switch.
+function bootIsToggleable(unitFileState) {
+  var state = String(unitFileState === undefined || unitFileState === null
+                     ? "" : unitFileState)
+  return state === "enabled" || state === "disabled"
 }
 
 function formatBytes(bytes) {
@@ -278,6 +306,7 @@ if (typeof module !== "undefined") {
     barSeverity: barSeverity,
     statusLabel: statusLabel,
     bootLabel: bootLabel,
+    bootIsToggleable: bootIsToggleable,
     formatBytes: formatBytes,
     formatDuration: formatDuration,
     formatCountdown: formatCountdown,
