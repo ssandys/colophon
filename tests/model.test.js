@@ -181,11 +181,9 @@ test("optimisticStatusFor drives the instant-feedback override", () => {
 test("actionErrorText turns the polkit refusal into the fix", () => {
   const denied = Model.actionErrorText(
     "Failed to start ollama.service: Interactive authentication required.")
-  assert.match(denied, /permission denied/)
-  assert.match(denied, /install-privileges/)
-  // No absolute path: bin/ ships in a published clone but is excluded from the
-  // dev rsync, so the script lives somewhere different in each case.
-  assert.ok(!denied.includes("/home/"))
+  assert.match(denied, /not authorized/)
+  assert.ok(!denied.includes("install-privileges"))
+  assert.ok(!denied.includes("polkit rule"))
   assert.equal(Model.actionErrorText(""), "")
   assert.equal(Model.actionErrorText("boom"), "boom")
   assert.ok(Model.actionErrorText("x".repeat(400)).length <= 160)
@@ -246,11 +244,15 @@ test("tooltipText names the foreign case and claims no uptime for it", () => {
   assert.ok(!text.includes("up "))
 })
 
-test("actionErrorText recognises every polkit refusal phrasing", () => {
+test("actionErrorText explains a refused prompt without naming a script", () => {
   for (const phrase of ["Interactive authentication required",
                         "Access denied", "not authorized"]) {
-    assert.match(Model.actionErrorText("systemctl: " + phrase + "."),
-                 /permission denied/, phrase)
+    const text = Model.actionErrorText("systemctl: " + phrase + ".")
+    assert.match(text, /not authorized/, phrase)
+    // The old message told the user to run bin/install-privileges. That script
+    // no longer exists, and a dismissed dialog was never a setup problem.
+    assert.ok(!text.includes("install-privileges"), phrase)
+    assert.ok(!text.includes("polkit rule"), phrase)
   }
 })
 

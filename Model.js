@@ -223,8 +223,7 @@ function actionErrorText(stderr) {
   if (text.indexOf("Interactive authentication required") >= 0 ||
       text.indexOf("Access denied") >= 0 ||
       text.indexOf("not authorized") >= 0) {
-    return "permission denied — the polkit rule is missing; run " +
-           "bin/install-privileges (see README)"
+    return "not authorized — the authentication prompt was dismissed or denied"
   }
   return text.length > 160 ? text.substring(0, 157) + "…" : text
 }
