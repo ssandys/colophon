@@ -256,19 +256,28 @@ class KindRoutingTest(unittest.TestCase):
 
 
 class UnitNameTest(unittest.TestCase):
-    def test_the_unit_name_agrees_across_python_and_the_polkit_rule(self):
-        # The grant names the unit; the scripts name the unit. Rename one and
-        # every action starts failing with a permission error that looks like a
-        # missing rule rather than a typo.
+    def test_the_unit_name_agrees_across_python_and_the_collector(self):
+        # Rename it in one place and every action fails with an error that
+        # reads like a permissions problem rather than a typo.
         self.assertEqual(collect.UNIT_NAME, "ollama.service")
-        rule = read("polkit", "49-colophon-ollama.rules")
-        self.assertIn('"ollama.service"', rule)
         action = read("scripts", "colophon_action.py")
         self.assertIn('UNIT_NAME = "ollama.service"', action)
 
-    def test_systemctl_is_always_non_interactive(self):
-        action = read("scripts", "colophon_action.py")
-        self.assertIn("--no-ask-password", action)
+    def test_the_prompt_is_never_suppressed_in_the_action_script(self):
+        # The sibling assertion in tests/test_action.py checks the constructed
+        # argv; this one checks the file, so a flag added anywhere -- a second
+        # call site, a helper, a stray copy from galley -- is caught too.
+        # Re-adding it converts every authentication dialog into a silent
+        # "Access denied".
+        #
+        # Comments are stripped first, exactly as ModelJsSyntaxTest.code_only
+        # does for Model.js: systemctl_command's own comment names the flag in
+        # order to explain why it is absent, and prose *about* a banned
+        # construct must not trip the guard. The strip is deliberately naive --
+        # it would also cut a "#" inside a string literal, of which this file
+        # has none.
+        source = re.sub(r"#[^\n]*", "", read("scripts", "colophon_action.py"))
+        self.assertNotIn("--no-ask-password", source)
 
 
 class ShowPropertyTest(unittest.TestCase):
