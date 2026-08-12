@@ -626,25 +626,25 @@ git commit -m "docs: the boot toggle landed"
 
 Record the starting boot state before you begin, so you can put it back.
 
-- [ ] **Step 1: Deploy**
+- [x] **Step 1: Deploy**
 
 ```bash
 cd ~/Src/colophon && ./bin/install && omarchy restart shell
 ```
 
-- [ ] **Step 2: The switch flips and prompts**
+- [x] **Step 2: The switch flips and prompts**
 
 Open the panel. The boot line should read `enabled at boot` or `disabled at boot` with a switch beside it, positioned to match. Click it.
 
 Expect: the knob throws immediately — before any dialog resolves — then Omarchy's authentication dialog appears offering fingerprint. Authenticate. The knob stays in its new position, and within one poll the label updates to match.
 
-- [ ] **Step 3: A dismissed dialog returns the knob**
+- [x] **Step 3: A dismissed dialog returns the knob**
 
 Click the switch again, then dismiss the dialog without authenticating.
 
 Expect: the knob throws, then returns to its original position, and the error strip reads `not authorized — the authentication prompt was dismissed or denied`. The switch becomes clickable again rather than staying inert.
 
-- [ ] **Step 4: A masked unit shows state and no switch**
+- [x] **Step 4: A masked unit shows state and no switch**
 
 ```bash
 sudo systemctl mask ollama.service
@@ -658,7 +658,7 @@ sudo systemctl unmask ollama.service
 
 Expect the line and switch to come back within one poll.
 
-- [ ] **Step 5: Put the boot state back and report**
+- [x] **Step 5: Put the boot state back and report**
 
 Return the unit to whatever state step 2 started from, then record the outcome of each step in the spec's Testing section. **Do not mark anything verified that was not observed on screen** — the 2026-08-11 spec recorded a hand-verification claim that was false and had to be corrected.
 

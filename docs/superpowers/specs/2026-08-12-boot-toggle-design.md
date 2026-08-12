@@ -246,17 +246,36 @@ Testable, roughly 6–8 new cases:
   later routes boot verbs through the run-status path.
 - The widened flag guard, iterating `SYSTEMCTL_VERBS`.
 
-Not testable in this repository, and to be stated as unverified until observed
-on screen:
+Not testable in this repository. **All three were observed on screen by the
+owner on 2026-08-12**, against the deployed dev build at `4da9d73`:
 
-1. Flipping the switch raises the Omarchy dialog and, on authentication, the
-   switch stays in its new position and the label updates on the next poll.
-2. Dismissing the dialog returns the switch to its original position and puts
-   the not-authorized message in the error strip.
-3. A masked unit shows its state with no switch.
+1. **Confirmed.** Flipping the switch raises the Omarchy dialog and, on
+   authentication, the switch stays in its new position and the label updates on
+   the next poll.
+2. **Confirmed.** Dismissing the dialog returns the switch to its original
+   position and puts the not-authorized message in the error strip.
+3. **Confirmed.** A masked unit shows its state with no switch.
+
+Recorded as the owner's own report — "the switch works, dismissing works, masked
+hides it" — not as a transcript. Two details inside check 1 were **not**
+separately confirmed and are not claimed here: that the knob throws *before* the
+dialog resolves rather than after, and the mid-ramp path described below. Both
+are cosmetic-timing rather than correctness, and both would have been visible as
+a failure if badly broken.
+
+**Still unverified: the mid-ramp guard.** `Service.qml`'s settle ramp once
+cleared `optimisticBootState` unguarded, so clicking the switch roughly three
+seconds into a ramp left over from a previous action snapped the knob back while
+the dialog was still open. The guard landed in `4da9d73`; the *path* has never
+been walked. Reaching it needs a deliberate sequence — click stop or restart,
+wait two seconds, then flip the boot switch — and no test in this repository can
+reach it, because `qmllint` cannot resolve `qs.Ui` and the bug is timing-
+dependent. Left open rather than assumed.
 
 The 2026-08-11 spec recorded a hand-verification claim that turned out false and
-had to be corrected; these three stay marked pending until someone looks.
+had to be corrected, and earlier in this branch's own execution a check was
+briefly marked confirmed on a controller's word before anyone had looked. Hence
+the distinction above between what was reported and what was inferred.
 
 ## Known limitations
 
