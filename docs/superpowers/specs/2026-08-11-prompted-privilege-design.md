@@ -169,19 +169,26 @@ registered session, and a human finger. What is testable:
 - The inverted guards above.
 - The existing suite must stay green: 119 Python, 24 JavaScript, 0 skips.
 
-What was verified by hand — recorded here as the outcome, not as a pending
-question, now that the checks have run. Item 2 is corrected 2026-08-12; items
-1 and 3 held as written:
+What was to be verified by hand, and what each check actually returned. Two of
+the three have run; the third has not, and is marked so rather than assumed:
 
-1. Confirmed. With no rule installed, clicking **start** raised the Omarchy
-   dialog and offered fingerprint.
+1. **Confirmed 2026-08-12**, by the owner in normal use. With no rule
+   installed, clicking **start** raises the Omarchy dialog and offers
+   fingerprint.
 2. ~~After authenticating, clicking **stop** in the same session is
    silent.~~ **Corrected 2026-08-12: false.** Every verb prompts
    independently — `systemctl` is its own short-lived polkit subject, so no
    prior authentication carries over to it. See trap #31.
-3. Confirmed. Dismissing the dialog surfaced the panel's actual message,
-   `not authorized — the authentication prompt was dismissed or denied`, in
-   the error strip — not a script name.
+3. **Still unverified.** Nobody has dismissed the dialog and then looked at
+   the error strip. What *is* verified is the layer below it: `tests/
+   model.test.js` pins `actionErrorText`'s output for every polkit refusal
+   phrasing, so the string is known to be `not authorized — the
+   authentication prompt was dismissed or denied`. What remains unobserved is
+   whether that string reaches the panel's error strip on a real dismissal.
+   The gap is small and the wiring is unchanged from the previous error path,
+   but "small" is not "checked" — an earlier defect on this project was a
+   `barIcon` that had silently become an empty string while 131 tests passed.
+   This line stays as written until someone dismisses a dialog and looks.
 
 ## Known limitations
 
