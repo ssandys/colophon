@@ -13,9 +13,10 @@ implementation: the prompt-less `/api/generate` load idiom and `keep_alive:
 0` unload were confirmed against ollama 0.32.7 (`pacman` upgraded it from
 0.32.6 mid-session), and `POST /api/generate` genuinely errors with HTTP 400
 against an embedding model, which is why the two-endpoint routing exists at
-all. The `manage-unit-files` scoping claim behind deferring the boot toggle
-remains **deliberately unverified** — see trap #28, below, and the
-verification doc's own section on it. Two findings recorded in the SDD
+all. The boot toggle was originally deferred over a `manage-unit-files` scoping
+claim, but that claim's verification status stopped mattering once the
+privilege mechanism it was scoping stopped existing — see trap #28, below,
+for the corrected record. Two findings recorded in the SDD
 ledger but missing from the verification doc as of this file's writing have
 since been added there: the post-`--check` `systemctl is-active`
 confirmation that the probe is a genuine no-op, and the finding that
@@ -223,9 +224,11 @@ behave" question — just don't write there.
 The design spec's "Phase 2" section lists what was deliberately left out of
 this MVP:
 
-1. **Boot toggle** (`enable`/`disable`). Needs a second privilege mechanism
-   — a sudoers drop-in scoped to two exact command strings — because
-   polkit cannot scope `manage-unit-files` (trap #28).
+1. **Boot toggle** (`enable`/`disable`). Needs no second privilege
+   mechanism — `enable`/`disable` would prompt through Omarchy's agent
+   exactly as the three lifecycle verbs already do (trap #28). What's left
+   is UI, not privilege: the panel already reports boot state from
+   `UnitFileState`; making that line clickable is the remaining work.
 2. **Journal log tail.** `journalctl -u ollama.service` is readable
    unprivileged, so this is scope, not capability. The failure *reason* is
    already in the MVP via `Result`.
