@@ -208,7 +208,11 @@ Expected: 119 Python + 24 JavaScript, 0 skips, exit 0. The count is unchanged: T
 - [ ] **Step 6: Confirm nothing still references the deleted files**
 
 Run: `grep -rn "install-privileges\|49-colophon" --include="*.py" --include="*.js" --include="*.qml" --include="*.sh" . | grep -v docs/superpowers`
-Expected: no output. Hits in `README.md` and `AGENTS.md` are Task 4's job; hits under `docs/superpowers/` are historical records and stay.
+Expected: exactly two hits, both of them Task 3's deliverable and neither yours
+to fix — `Model.js`'s `actionErrorText` string and the `tests/model.test.js`
+assertion that pins it. Anything else is a straggler and belongs to this task.
+Hits in `README.md` and `AGENTS.md` are Task 4's job; hits under
+`docs/superpowers/` are historical records and stay.
 
 - [ ] **Step 7: Commit**
 
