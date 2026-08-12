@@ -37,7 +37,7 @@ assumed. Several of them overturned an earlier design assumption.
 | Unit | `/usr/lib/systemd/system/ollama.service`, `User=ollama` | It is a **system** unit; every lifecycle verb needs privilege. Galley needed none — `cupsdisable` worked unauthenticated |
 | Unit state | `disabled`, `inactive (dead)` | Not meant to run at boot. This is the usage signal behind "on-demand switch" |
 | polkit `manage-units` | `auth_admin_keep` | Start/stop/restart require authentication by default |
-| polkit **agent** | **none running** (only `polkitd`; no `hyprpolkitagent`, `polkit-gnome`, `lxqt-policykit`, `mate-polkit` installed) | `pkexec` from a QML `Process` has no tty and no agent — it fails outright. The Go tray's `pkexec systemctl` approach **does not port** |
+| polkit **agent** | **`omarchy.polkit`, a `service`-kind shell plugin with `keepLoaded: true`, running inside the shell process** | Corrected 2026-08-11 — this row previously read "none running", which was false when written. The check was `ps -eo args \| grep -i polkit`, which finds standalone agent *binaries*; an agent embedded in the shell process cannot appear in it. That false row is what ruled out `pkexec`, motivated the polkit rule, and deferred the boot toggle. See `2026-08-11-prompted-privilege-design.md` |
 | polkit `manage-unit-files` | separate action, no `unit` detail from systemd | enable/disable **cannot** be scoped to one unit by a polkit rule. This removed the boot toggle from the MVP |
 | `journalctl -u ollama.service` | works unprivileged (user is in `wheel`) | Log tail is *available* — deferred by scope, not blocked |
 | `systemctl show` properties | `UnitFileState`, `Result`, `ExecMainStartTimestamp`, `NRestarts`, `MemoryCurrent` all readable unprivileged | Boot state, failure reason, uptime, and RSS come from **one** call — no `is-enabled`, no `journalctl` |
@@ -313,74 +313,15 @@ installed here, so this is a live case, not a hypothetical). Routing uses the
 falls through to `generate`, and the API's own error is surfaced inline on the
 row rather than failing silently.
 
-### The privilege grant
+### The privilege grant — superseded 2026-08-11
 
-One file, `polkit/49-colophon-ollama.rules`, installed to
-`/etc/polkit-1/rules.d/` by `bin/install-privileges` with the invoking user's
-name interpolated:
-
-```javascript
-polkit.addRule(function (action, subject) {
-  if (subject.user !== "USER") return;
-  if (action.id !== "org.freedesktop.systemd1.manage-units") return;
-  if (action.lookup("unit") !== "ollama.service") return;
-  var verb = action.lookup("verb");
-  if (verb === "start" || verb === "stop" || verb === "restart") {
-    return polkit.Result.YES;
-  }
-});
-```
-
-`manage-units` carries both a `unit` and a `verb` detail, so this grants exactly
-one user password-free start/stop/restart of exactly one unit, and nothing else.
-Every other path returns `undefined`, so the rule abstains rather than blocking —
-it never overrides a system default for anything it does not permit.
-
-**Correction, 2026-08-10.** An earlier draft of this section scoped by `unit`
-alone and claimed that was "as narrow as polkit can express." That was wrong, and
-a code review caught it before the rule was installed. `manage-units` is the
-single action gating *every* per-unit systemd D-Bus operation, so a unit-only
-rule also permits `kill` (an arbitrary signal to every process in the unit's
-cgroup), `set-property`, `reset-failed`, `freeze`/`thaw`, and `clean` on that
-unit. Verified on this machine: `clean` is inert here, because
-`StateDirectory`, `CacheDirectory`, `RuntimeDirectory`, `LogsDirectory`, and
-`ConfigurationDirectory` are all empty on `ollama.service` and the 19 GB model
-store is reachable only through `WorkingDirectory`, which `clean` does not
-touch — but `kill` is not inert, and none of it belongs in a grant whose stated
-purpose is three verbs. The `verb` allow-list is what makes the description true.
-
-`bin/install-privileges` requires root, refuses to run if `$SUDO_USER` is unset
-(otherwise it would grant to `root`), and prints what it wrote.
-
-### `--check` cannot use `pkcheck`
-
-**Corrected 2026-08-10, empirically.** Two earlier drafts of this section
-specified a `pkcheck`-based `--check` needing no root. That is not
-implementable. polkit refuses details from an unprivileged caller:
-
-```
-NotAuthorized: Only trusted callers (e.g. uid 0 or an action owner)
-can use CheckAuthorization() and pass details
-```
-
-So `--check` is trapped: to match a detail-scoped rule it must pass `unit` and
-`verb` details, and passing details requires uid 0. A detail-less query cannot
-match the rule and merely reports the action's default. Running it as root does
-not help either — it would ask whether *root* is authorized, not the user.
-
-`--check` therefore **exercises the grant for real, using the verb that is a
-no-op for the unit's current state**: `stop` when the unit is already
-`inactive`, `start` when it is already `active`. The polkit check runs in
-earnest while the unit's state is unchanged. From any other state
-(`activating`, `deactivating`, `failed`) no verb is a safe no-op, so `--check`
-reports that it could not verify rather than probing.
-
-Verified on this machine after installing the rule, with the unit inactive:
-
-| Command | Result | What it proves |
-|---|---|---|
-| `systemctl --no-ask-password stop ollama.service` | exit 0, no prompt, still inactive | the grant works, and the probe is a true no-op |
-| `systemctl --no-ask-password freeze ollama.service` | refused: "requires interactive authentication" | the verb allow-list really excludes non-listed verbs, and the probe is sensitive to polkit rather than passing vacuously |
+Both this section and the `--check` design below described a scoped polkit
+rule and its installer, which have since been deleted. `systemctl` now prompts
+through Omarchy's own agent. See
+`2026-08-11-prompted-privilege-design.md`. The reasoning preserved here is
+still accurate about polkit itself — `manage-units` gates every per-unit
+operation, and `pkcheck` cannot pass details as an unprivileged caller — and
+would apply again to anyone writing a rule.
 
 **Why the boot toggle is not in the MVP.** `enable`/`disable` go through
 `org.freedesktop.systemd1.manage-unit-files`, a different action that systemd
@@ -406,6 +347,11 @@ excludes everything outside its verb allow-list — `freeze` is refused while
 `stop` succeeds — so `enable`/`disable` are not reachable through it either
 way. If someone later wants the boot toggle, running that experiment is the
 first step, not a formality.
+
+**2026-08-11:** that blocker is gone — the polkit rule this reasoning was
+scoping no longer exists, prompted authentication needs no rule to scope
+anything, and the boot toggle is now a follow-up rather than a permanent
+limitation; see `2026-08-11-prompted-privilege-design.md`.
 
 ## UI
 

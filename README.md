@@ -66,54 +66,11 @@ omarchy bar move ssandys.colophon --section left
 (`move` repositions a widget already in the bar layout; `put` only adds one
 that isn't there yet, so running `put` at this point would be a no-op.)
 
-**Grant it privilege.** Start/stop/restart go through `systemctl` against a
-*system* unit, which needs authentication. `pkexec` isn't an option here:
-the widget spawns its helper scripts as a headless `Process` with no
-controlling terminal, and the reference machine this was built against runs
-no polkit agent for a prompt to appear in either way. Colophon installs a
-narrow polkit rule instead, so no interactive authentication is ever
-needed:
-
-```bash
-sudo bin/install-privileges
-```
-
-This grants exactly one thing: **your user account may start, stop, and
-restart `ollama.service` without a password, and nothing else** — not
-`enable`/`disable` (see Boot start, below), not any other unit, and not any
-other verb on this one: `freeze`, `kill`, and `set-property` on
-`ollama.service` still require a password.
-
-Where you run it from depends on how you installed:
-
-- **Published clone:** `sudo ~/.config/omarchy/plugins/ssandys.colophon/bin/install-privileges`
-- **Dev checkout** (working on Colophon itself): `sudo bin/install-privileges`, from the repo root.
-
-`bin/` ships inside a published `omarchy plugin add` clone (it's an
-ordinary `git clone`) but is deliberately excluded from the dev-install copy
-(`bin/install`'s rsync), so the script only ever exists in one of those two
-places at a time — never under
-`~/.config/omarchy/plugins/ssandys.colophon-dev/`.
-
-Check the grant:
-
-```bash
-bin/install-privileges --check
-```
-
-No root needed. It doesn't use `pkcheck` — polkit refuses to accept
-`--detail` arguments (`unit`, `verb`) from an unprivileged caller, and a
-detail-less query can't match a rule scoped by both, so it would only ever
-report the action's bare, unhelpful default. Instead, `--check` exercises
-the grant for real, using whichever verb is a safe no-op for the unit's
-current state (`stop` if it's already inactive, `start` if it's already
-active), and reports whether polkit actually let it through.
-
-Remove it:
-
-```bash
-sudo bin/install-privileges --remove
-```
+**Authentication.** Start, stop, and restart act on a *system* unit, so the
+first one each login raises Omarchy's authentication dialog — fingerprint if
+you have one enrolled, password otherwise. Authorization is then retained for
+the session, so a start and a later stop don't ask twice. Nothing to install,
+and Colophon can't touch the service without you approving it that session.
 
 ## Reading the bar
 
@@ -163,14 +120,15 @@ this is a one-time command:
 sudo systemctl enable ollama.service
 ```
 
-**Why the widget can't do this itself:** enable/disable go through a
-different polkit action, `org.freedesktop.systemd1.manage-unit-files`, and
-systemd invokes it with **no `unit` detail at all** — a polkit rule has
-nothing to scope it by. Granting that action would grant password-free
-enable/disable of *every* unit on the system, not just this one. That's a
-materially bigger, and materially riskier, grant than the three-verb,
-one-unit rule above, so the boot toggle was left out of Colophon rather than
-widening what it asks for.
+**Why the widget can't do this itself (yet):** enable/disable go through a
+different polkit action, `org.freedesktop.systemd1.manage-unit-files`, than
+the one start/stop/restart use. That distinction used to matter for a
+different reason — a passwordless rule can't be scoped to one unit for this
+action, so it was left out to keep that rule provably narrow — but Colophon
+no longer installs a rule at all, so the concern no longer applies:
+authorization is prompted, not granted, for every verb. The boot toggle is
+simply not built yet; it's a follow-up, not a limitation of the
+authentication model.
 
 ## Configuration
 
@@ -203,10 +161,11 @@ systemd genuinely has nothing running to report.
 
 ## Troubleshooting
 
-**"permission denied" when you click start, stop, or restart.** The polkit
-grant is missing, or was installed for a different user than the one
-running the shell. Run `sudo bin/install-privileges` (see Install, above),
-then confirm with `bin/install-privileges --check`.
+**"not authorized — the authentication prompt was dismissed or denied" when
+you click start, stop, or restart.** Omarchy's authentication dialog
+appeared and was cancelled, timed out, or the credential didn't match — not
+a missing setup step. Click the button again and complete the prompt
+(fingerprint if you have one enrolled, password otherwise).
 
 **The widget looks stale or wrong after an update.** Quickshell doesn't
 re-create an already-running widget when the plugin's *structure* changes,
@@ -281,17 +240,6 @@ readable.
   collector error, not a "please install X" message — see Prerequisites.
 
 ## Uninstall
-
-Remove the polkit rule *first*. `bin/install-privileges` lives inside the
-plugin directory that `omarchy plugin remove` deletes, so removing the
-grant afterward would leave you with no script to run it from without
-cloning the repo again. Where you run it from depends on how you installed
-— the same two paths as Install, above:
-
-- **Published clone:** `sudo ~/.config/omarchy/plugins/ssandys.colophon/bin/install-privileges --remove`
-- **Dev checkout** (working on Colophon itself): `sudo bin/install-privileges --remove`, from the repo root.
-
-Then, from anywhere:
 
 ```bash
 omarchy plugin remove ssandys.colophon
