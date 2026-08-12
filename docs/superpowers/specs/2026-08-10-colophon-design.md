@@ -5,6 +5,24 @@
 **Plugin ID:** `ssandys.colophon`
 **Repo:** `~/Src/colophon/` → deploys to `~/.config/omarchy/plugins/ssandys.colophon/`
 
+> **Privilege model superseded, 2026-08-12.** Everything this document says
+> about *how Colophon obtains privilege* is historical. It was built on the
+> premise that no polkit authentication agent was running, which was false —
+> see `AGENTS.md` trap #30 for how the check failed. The polkit rule,
+> `bin/install-privileges`, `--no-ask-password`, non-interactive invocation, and
+> the "run the installer" error message are all **gone**; Colophon now prompts
+> through Omarchy's own agent on every action. Trap #31 has the mechanism and
+> why "one prompt per login" was never achievable.
+> `docs/superpowers/specs/2026-08-11-prompted-privilege-design.md` is the
+> current record.
+>
+> Individual passages below carry their own dated corrections where the claim
+> was load-bearing. This banner covers the rest — the file tree, the
+> README-contents list, and scattered mentions of the rule or the installer are
+> a snapshot of 2026-08-10, not instructions. Everything in this document
+> *outside* the privilege model — the status model, the panel layout, the API
+> idioms, the collector design — stands as written and is still authoritative.
+
 ## Purpose
 
 A bar widget for the Omarchy shell that shows whether the local Ollama server is
@@ -280,14 +298,26 @@ the design's own test expected it rejected. Found during implementation, on
 Every verb accepts `--dry-run`, which prints the plan and exits 0 without
 performing it, and `--api-base URL`, matching the collector.
 
-`systemctl` is invoked **non-interactively** so a missing grant fails
+~~`systemctl` is invoked **non-interactively** so a missing grant fails
 immediately rather than hanging on a password prompt with no tty. The panel maps
 that specific stderr ("Interactive authentication required") to
 `permission denied — the polkit rule is missing; run bin/install-privileges (see
 README)`, not a raw dump. The message deliberately carries **no absolute path**:
 `bin/` ships in a published `omarchy plugin add` clone but is excluded from the
 dev rsync, so the script lives in a different place in each case and the README
-gives both.
+gives both.~~
+
+**Corrected 2026-08-12.** Every clause above is now false, and the reasoning in
+it is worth keeping visible because of *why*. `systemctl` is invoked
+**interactively** — the `--no-ask-password` flag is gone. It was added to avoid
+"hanging on a password prompt with no tty," a hang that could not happen:
+polkit authentication never goes through a tty, and an agent was registered the
+whole time. The flag's real effect was to set
+`allow_interactive_authorization = false`, which is what turned the dialog into
+a bare `Access denied` — so the defense caused the failure it was defending
+against. The stderr mapping now returns `not authorized — the authentication
+prompt was dismissed or denied`, and there is no script to name. See traps #30
+and #31.
 
 ### Warming and unloading
 
