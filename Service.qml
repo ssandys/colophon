@@ -37,6 +37,16 @@ Item {
   // dropbox/Service.qml's `_desired` pattern: the UI reacts the instant you
   // click rather than one poll later. Empty means "just follow reality".
   property string optimisticStatus: ""
+  // "", "enabled", or "disabled". The boot switch's optimistic value, so the
+  // knob throws on click instead of waiting a poll.
+  //
+  // This clears like optimisticStatus, NOT like expectedStop -- see trap #19.
+  // Clearing early costs at most one poll of knob snap-back, so it fails safe
+  // toward reality. expectedStop fails the other way, toward suppression,
+  // because clearing it early fires a false "stopped unexpectedly" alert.
+  // Do not unify these clearing rules "for consistency": that is the bug
+  // trap #19 exists to prevent.
+  property string optimisticBootState: ""
   readonly property string effectiveStatus:
     root.optimisticStatus !== "" ? root.optimisticStatus : root.status
 
@@ -121,6 +131,8 @@ Item {
     // flicker of the previous status, so it goes as soon as reality speaks.
     if (root.optimisticStatus !== "" && root.actionInProgress === "")
       root.optimisticStatus = ""
+    if (root.optimisticBootState !== "" && root.actionInProgress === "")
+      root.optimisticBootState = ""
 
     // Suppressed on the first snapshot, so shell startup is silent.
     if (previous !== "") checkForDeath(previous, next)
@@ -147,6 +159,14 @@ Item {
     root.actionError = ""
     root.actionExited = false
     if (verb === "stop" || verb === "restart") root.expectedStop = true
+
+    // Boot verbs touch no run state: enable does not start, disable does not
+    // stop. They must not set expectedStop (nothing can stop, so the
+    // suppression would be armed for an impossible event) and must not set
+    // optimisticStatus (which holds a *run* status). They get their own value.
+    if (verb === "enable" || verb === "disable") {
+      root.optimisticBootState = verb === "enable" ? "enabled" : "disabled"
+    }
 
     var optimistic = Model.optimisticStatusFor(verb)
     if (optimistic !== "") {
@@ -232,6 +252,7 @@ Item {
         settleTimer.running = false
         settleTimer.ticks = 0
         root.optimisticStatus = ""
+        root.optimisticBootState = ""
         root.expectedStop = false
       }
     }
@@ -289,6 +310,7 @@ Item {
         root.actionError = "Could not run the action helper"
       if (root.actionError !== "") {
         root.optimisticStatus = ""
+        root.optimisticBootState = ""
         root.expectedStop = false
       }
       root.actionInProgress = ""
