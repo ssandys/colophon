@@ -134,8 +134,11 @@ function bootLabel(unitFileState) {
   var state = String(unitFileState === undefined || unitFileState === null
                      ? "" : unitFileState)
   if (state === "") return ""
-  var known = BOOT_LABELS[state]
-  return known === undefined ? state : known
+  // hasOwnProperty.call, not a bare BOOT_LABELS[state]: a bare lookup walks the
+  // prototype chain, so a state named "constructor" or "toString" returns an
+  // inherited function instead of falling through to the raw value below.
+  if (!Object.prototype.hasOwnProperty.call(BOOT_LABELS, state)) return state
+  return BOOT_LABELS[state]
 }
 
 // Only enabled and disabled can be flipped. enable on a masked or static unit

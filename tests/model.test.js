@@ -290,6 +290,22 @@ test("bootLabel names every state it knows and never hides an unknown one", () =
   assert.equal(Model.bootLabel(null), "")
 })
 
+test("bootLabel never returns an inherited Object.prototype member", () => {
+  // BOOT_LABELS is an object literal, so a bare table[state] lookup walks the
+  // prototype chain: for these names it yields a function or Object.prototype
+  // itself rather than undefined, and the raw-string fallback never runs. The
+  // fallback is the whole point of the table -- an unanticipated state must
+  // render visibly instead of vanishing -- so this is the one input class where
+  // it silently would not. Reaching a QML Text.text binding, a function renders
+  // as nonsense rather than as the state name.
+  for (const state of ["constructor", "toString", "hasOwnProperty", "valueOf",
+                       "isPrototypeOf", "propertyIsEnumerable", "__proto__"]) {
+    const label = Model.bootLabel(state)
+    assert.equal(typeof label, "string", state + " must yield a string")
+    assert.equal(label, state, state + " must fall through to the raw value")
+  }
+})
+
 test("bootIsToggleable is true for exactly the two states systemd can flip", () => {
   assert.equal(Model.bootIsToggleable("enabled"), true)
   assert.equal(Model.bootIsToggleable("disabled"), true)
