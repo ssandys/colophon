@@ -66,11 +66,11 @@ omarchy bar move ssandys.colophon --section left
 (`move` repositions a widget already in the bar layout; `put` only adds one
 that isn't there yet, so running `put` at this point would be a no-op.)
 
-**Authentication.** Start, stop, and restart act on a *system* unit, so the
-first one each login raises Omarchy's authentication dialog — fingerprint if
-you have one enrolled, password otherwise. Authorization is then retained for
-the session, so a start and a later stop don't ask twice. Nothing to install,
-and Colophon can't touch the service without you approving it that session.
+**Authentication.** Start, stop, and restart act on a *system* unit, so
+**every** one of them raises Omarchy's authentication dialog — fingerprint if
+you have one enrolled, password otherwise. Expect one prompt per click, not
+one per login. Nothing to install, and Colophon can't touch the service
+without you approving each action.
 
 ## Reading the bar
 

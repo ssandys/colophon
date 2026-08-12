@@ -9,8 +9,9 @@
 
 Colophon ships a root-installed polkit rule and an installer script so that
 start, stop, and restart run without a password. This replaces both with the
-authentication dialog Omarchy already provides: the verbs prompt once per
-login, take a fingerprint, and proceed.
+authentication dialog Omarchy already provides: the verbs prompt — ~~once per
+login~~ **corrected 2026-08-12: on every action, see below** — take a
+fingerprint, and proceed.
 
 The rule is deleted, not made optional. It bought about one second per login
 and cost the project its only root-installed artifact, a ~90-line installer, a
@@ -46,11 +47,33 @@ rule can scope `manage-unit-files`.
 | It handles fingerprint deliberately | The agent carries `property bool fingerprintConfigured`, commented "pam_fprintd appears in the polkit PAM stack (a sensor is enrolled)" |
 | Fingerprint is wired into polkit on this machine | `/etc/pam.d/polkit-1` has `auth sufficient pam_fprintd.so` **above** `auth required pam_unix.so`; `fprintd 1.94.5-2` installed |
 | polkit authorizes the user interactively | `pkcheck --action-id org.freedesktop.systemd1.manage-unit-files --process $$ -u` → `exit=0`, `polkit.result=auth_admin_keep`, `polkit.temporary_authorization_id=tmpauthz0`, `polkit.retains_authorization_after_challenge=true` |
-| One prompt covers the action, not each verb | With the rule removed: `systemctl stop ollama.service` prompted; the following `systemctl start ollama.service` was **silent** |
+| ~~One prompt covers the action, not each verb~~ **Corrected 2026-08-12: every verb prompts** | What was actually verified was `pkcheck --process $$`, whose subject is the long-lived invoking shell: a second identical call was silent and reused `tmpauthz11`. That does not transfer to `systemctl`, which names itself as the subject and exits within the same second — two consecutive `systemctl start` calls against an already-active unit created `tmpauthz12` and `tmpauthz13`, and **both** prompted. See trap #31. |
 | A first-party plugin already escalates this way | `shell/plugins/panels/tailscale/Service.qml:353` runs `["pkexec", "tailscale", "set", …]` from a QML `Process` |
 
 The last row is the one that should have been found first. A shipped Omarchy
 plugin does the exact thing the spec called impossible.
+
+### Corrected 2026-08-12: every verb prompts, not once per login
+
+polkit scopes an `auth_admin_keep` temporary authorization to
+`unix-process:PID:STARTTIME`; it is reusable only while that exact process is
+still alive. `systemctl` names itself as that process and exits within the
+same second it's authorized, so its authorization is orphaned at birth —
+retention can never help it. No logind session is resolvable for the shell's
+children either, because Omarchy runs the compositor under `user@1000.service`
+(uwsm) rather than inside a `session-N.scope`:
+
+```
+quickshell cgroup:
+/user.slice/user-1000.slice/user@1000.service/session.slice/wayland-wm@hyprland.desktop.service
+login session 1: tty1, seat0, leader pid 3196 -- no session-N.scope in that path
+```
+
+Even a perfectly retained authorization would not have delivered "once per
+login" regardless: the temporary authorization's own lifetime is five
+minutes (observed `expires: 4 min 59 sec`), not a session. The owner measured
+8 authentications in about 80 seconds of normal use; the journal shows 8
+`polkit-agent-helper-1` spawns to match.
 
 ## The change
 
@@ -157,11 +180,16 @@ What must be verified by hand, and stated as unverified until it is:
 ## Known limitations
 
 - A dismissed or ignored dialog fails the action after 120 seconds, during
-  which the button is disabled.
+  which the button is disabled. With every verb now prompting (see below),
+  this is a routine wait, not a rare one — the 120-second budget is spent on
+  every start, stop, and restart, not just a once-per-login first click.
 - If the shell's polkit agent is ever not running — plugin disabled, shell
   crashed — the verbs fail rather than prompting. That is the same failure as
   today, so no regression, but it is now the only failure mode rather than one
   of two.
-- Authorization is retained per polkit's `auth_admin_keep` semantics, whose
-  exact lifetime is polkit's to define. Observed: it survives across verbs
-  within a session.
+- **Corrected 2026-08-12: every start, stop, and restart raises the dialog.**
+  `auth_admin_keep` retention is real, but it is scoped to the exact process
+  that requested it, and each `systemctl` invocation is its own short-lived
+  polkit subject — it is gone before the authorization could ever be reused.
+  This is a per-action fingerprint (or password) touch, not a per-login one.
+  It is the accepted trade for shipping no root-installed artifact.
