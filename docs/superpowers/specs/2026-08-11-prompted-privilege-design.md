@@ -142,6 +142,9 @@ every other time it was wrong.
   rule, but loses its "this is why our rule is verb-scoped" framing.
 - **Trap 28** (enable/disable cannot be scoped) stops being a blocker. It
   becomes a note that the boot toggle is a follow-up, unblocked by this change.
+  **Landed 2026-08-12:** that follow-up has shipped, and trap #28 itself now
+  carries the dated note recording it. See
+  `docs/superpowers/specs/2026-08-12-boot-toggle-design.md`.
 - A new trap records the premise failure itself: an agent embedded in another
   process is invisible to a process-list search, so absence of evidence in `ps`
   is not evidence of absence.
@@ -152,6 +155,9 @@ every other time it was wrong.
   simply prompt — but deliberately deferred to its own spec so this one lands
   and is verified alone. The panel already reports boot state; the feature is
   mostly making that line clickable.
+  **Landed 2026-08-12:** that later spec shipped the same day — see
+  `docs/superpowers/specs/2026-08-12-boot-toggle-design.md`. Nothing about
+  the boot toggle is still pending.
 - **Migration.** The repository is public but has no install base beyond its
   author, whose machine already has no rule installed. No removal instructions
   ship.
