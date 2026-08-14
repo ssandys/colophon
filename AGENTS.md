@@ -177,28 +177,67 @@ and restart again to go back to touching the real system.
   it, and a green run is not evidence that anyone has. (See trap #15 for
   what a QML parse failure actually looks like here.)
 
-- `./bin/dev-watch` installs once, then watches the source tree with
-  `inotifywait` and reinstalls on every save, so
+- `./bin/dev` is the whole dev lifecycle, and every verb takes `--dry-run`,
+  which prints the exact command sequence instead of performing any of it:
+
+  | Verb | What it does |
+  |---|---|
+  | `up` | deploy, register, enable, restart the shell |
+  | `down` | disable the dev plugin and restart the shell — a no-op, with no restart, if there is nothing to disable |
+  | `deploy` | deploy only; never touches the running shell |
+  | `status` | the dev id, whether it is deployed, and whether the registry has it enabled |
+
+- `./bin/dev-watch` deploys once, then watches the source tree with
+  `inotifywait` and reruns `bin/dev deploy` on every save, so
   `~/.config/omarchy/plugins/ssandys.colophon-dev/` always matches your
-  working tree. It runs alongside a published `ssandys.colophon` install
-  rather than fighting it, by rewriting the manifest id and `Panel.qml`'s
-  `moduleName`/`ipcTarget` to `ssandys.colophon-dev` in the *deployed copy
-  only* — the source tree stays canonical. Full reasoning in the design
-  spec's "Repo layout" section.
+  working tree. It uses `deploy` rather than `up` deliberately: `up` restarts
+  the shell, and doing that on every keystroke-to-disk would flicker the whole
+  bar continuously.
+
+  The dev copy runs alongside a published `ssandys.colophon` install rather
+  than fighting it, because `bin/dev` rewrites the identity in the *deployed
+  copy only* — the source tree stays canonical. It rewrites the manifest id,
+  the display name, and **every top-level QML file**, not `Panel.qml` alone,
+  and then asserts no deployed file still carries the published id or name.
+  That breadth matters here specifically: when the notify call moved into
+  `Service.qml`, the old `Panel.qml`-only rewrite stopped reaching it and this
+  plugin's dev copy sent notifications branded exactly like the published one
+  for as long as nobody noticed. Note `Model.js` is *not* covered — it is
+  deployed but is neither a rewrite nor a verification target, so an identity
+  string there still leaks (`ssandys/galley` issue #17).
+
+- `bin/dev`, `bin/dev-watch` and `bin/test` contain no plugin-specific
+  literal — everything comes from `manifest.json` at runtime — so they are
+  byte-identical across every `ssandys.*` plugin and were copied here
+  unedited. `tests/test_dev.py`'s `PortabilityTest` enforces that, reading its
+  literals from whichever `manifest.json` it finds. **They are canonical in
+  `ssandys/galley`; fix them there and re-copy rather than patching here.**
+  Design record: `ssandys/galley:
+  docs/superpowers/specs/2026-08-13-plugin-devkit-design.md`.
 
 - `COLOPHON_FIXTURE=tests/fixtures/<state> python3 scripts/colophon_collect.py`
   replays a recorded snapshot instead of touching systemd, the network, or
   the real model store — see "How to add a fixture state," above, for the
   live-panel version of this trick.
 
-- `omarchy-shell shell rescanPlugins` forces the shell to rediscover
-  plugins on disk. Use it after `bin/install` deploys a plugin id the
-  shell hasn't seen before (a fresh dev install, or right after
-  reinstalling from scratch) — the file watcher alone doesn't always catch
-  a brand-new plugin directory. Note that `bin/install` itself never
-  touches `shell.json`; the widget won't appear on the bar until you also
-  enable and place it (`omarchy bar put ssandys.colophon-dev`, or the
-  shell's settings panel).
+- `omarchy-shell shell rescanPlugins` forces the shell to rediscover plugins
+  on disk. **`bin/dev up` does this for you, and you almost certainly want
+  `up` rather than the manual sequence.** The note this replaces was right
+  that the file watcher doesn't reliably catch a brand-new plugin directory —
+  `omarchy plugin enable` exits non-zero for an id the registry has never
+  seen, which is every first deploy of a fresh clone.
+
+  The reason it's worth automating rather than remembering: the rescan is
+  **asynchronous**. It returns before the shell has finished re-walking the
+  plugin directories — measured at roughly 370ms on this hardware — so
+  rescanning and then immediately enabling still loses the race. `bin/dev up`
+  polls until the registry actually reflects the id, with a bounded timeout,
+  and only then enables. Doing it by hand works only because a human is
+  slower than 370ms.
+
+  `up` also enables the plugin, and placement comes from the manifest's
+  `barWidget.defaultSection`, so no separate `omarchy bar put` is needed.
+  `bin/dev deploy` is the verb that deliberately does none of this.
 
 - `omarchy restart shell` is the fix for the structure gotcha:
   Quickshell hot-reloads a plugin's *code* on save, but if you changed the
