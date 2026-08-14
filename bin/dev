@@ -102,10 +102,43 @@ deploy() {
   # rewrite missed a QML file extracted after the list was written, leaving
   # its dev copy sending notifications branded identically to the published
   # plugin -- with no test able to see the omission.
-  run sed -i "$rewrite" "$DEST/manifest.json" "$DEST"/*.qml
+  # Every deployed TEXT file, derived -- not a list of names, and not a list of
+  # extensions either. A hardcoded list silently narrows every time the code is
+  # refactored, and it has done so twice: first a sibling plugin's rewrite named
+  # Panel.qml and missed a QML file extracted after the list was written, so its
+  # dev copy's notifications were branded as the published plugin; then the
+  # *.qml glob that fixed it missed a deployed Model.js, so the same plugin's
+  # bar tooltip read the published name before its first snapshot arrived.
+  # Neither the deploy nor verify() could see past it, because both were scoped
+  # to the same glob. A file-type list narrows for the same reason a file-name
+  # list does, so there is no list.
+  if (( DRY_RUN )); then
+    # A dry run deploys nothing, so no file list exists to derive. Naming the
+    # intent beats globbing a previous deploy's leftovers and calling it a
+    # preview.
+    run sed -i "$rewrite" "$DEST/<every deployed text file>"
+    return 0
+  fi
 
-  (( DRY_RUN )) && return 0
-  verify
+  local -a targets=()
+  readarray -t targets < <(deployed_text_files)
+  # Guarded, and not only for tidiness: `grep -Fl PATTERN` with zero file
+  # arguments reads stdin and hangs forever. verify() below passes this array
+  # straight to grep, so an empty list would turn a failed deploy into a
+  # wedged one.
+  (( ${#targets[@]} )) ||
+    fail "no deployed text files found under $DEST -- did the rsync run?"
+  sed -i "$rewrite" "${targets[@]}"
+  verify "${targets[@]}"
+}
+
+# Every deployed file grep is willing to treat as text, one per line. `grep -I`
+# reports a binary file as non-matching, which is what keeps preview.png and
+# friends out of sed's path now that the rewrite is no longer confined to *.qml.
+# `find -exec ... +` runs no grep at all when nothing matches, so this cannot
+# fall through to reading stdin.
+deployed_text_files() {
+  find "$DEST" -type f -exec grep -Il . {} + 2>/dev/null || true
 }
 
 verify() {
@@ -117,17 +150,24 @@ verify() {
   [[ "$deployed_id" == "$DEV_ID" ]] ||
     fail "deployed manifest id is '$deployed_id', expected '$DEV_ID'"
 
+  # Checked across the files passed in -- the same set the rewrite just covered
+  # -- so be honest about what this proves: it confirms the sed landed, and it
+  # is NOT an independent net. Once the rewrite reaches every deployed text
+  # file there is nothing left for a broader assert to find, so the leak class
+  # is closed by the rewrite's completeness, not by this check's breadth. Its
+  # value is catching a rewrite that silently stopped working.
+  #
   # These mirror the sed's own quote anchors, so they discriminate rewritten
   # from unrewritten without any escaping: "$ID" does not match "$DEV_ID", and
   # $NAME" does not match $NAME (dev)". grep exits 1 on no match, which is the
   # success case here, hence `|| true` under `set -e`.
-  stale="$(grep -Fl "\"$ID\"" "$DEST"/*.qml || true)"
+  stale="$(grep -Fl "\"$ID\"" "$@" || true)"
   [[ -z "$stale" ]] ||
-    fail "deployed QML still claims the published id: $stale"
+    fail "deployed files still claim the published id: $stale"
 
-  stale="$(grep -Fl "$NAME\"" "$DEST"/*.qml || true)"
+  stale="$(grep -Fl "$NAME\"" "$@" || true)"
   [[ -z "$stale" ]] ||
-    fail "deployed QML still carries the published name: $stale"
+    fail "deployed files still carry the published name: $stale"
 }
 
 up() {

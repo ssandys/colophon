@@ -103,6 +103,36 @@ class RealDeployTest(unittest.TestCase):
     def deployed_qml_files(self):
         return [name for name in os.listdir(self.dest) if name.endswith(".qml")]
 
+    def build_mirror(self, files):
+        """A scratch source tree: bin/dev, this repo's manifest.json, + `files`.
+
+        Deploying a mirror rather than this repo is the only way to present a
+        source tree this plugin does not have -- a second QML file, a non-QML
+        file carrying the identity, a binary -- which is what rewrite-breadth
+        regressions need in order to be visible at all. `files` maps a name to
+        str (written as text) or bytes (written binary).
+        """
+        mirror = tempfile.mkdtemp(prefix="dev-test-mirror-")
+        self.addCleanup(shutil.rmtree, mirror, ignore_errors=True)
+        os.makedirs(os.path.join(mirror, "bin"))
+        shutil.copy(DEV, os.path.join(mirror, "bin", "dev"))
+        shutil.copy(os.path.join(ROOT, "manifest.json"), mirror)
+        for name, content in files.items():
+            binary = isinstance(content, bytes)
+            with open(os.path.join(mirror, name), "wb" if binary else "w") as handle:
+                handle.write(content)
+        return mirror
+
+    def deploy_mirror(self, mirror):
+        return subprocess.run(
+            ["bash", os.path.join(mirror, "bin", "dev"), "deploy"],
+            capture_output=True, timeout=60, cwd=mirror,
+            env={**os.environ, "HOME": self.home})
+
+    def real_panel_qml(self):
+        with open(os.path.join(ROOT, "Panel.qml")) as handle:
+            return handle.read()
+
     def test_deploy_exits_zero(self):
         proc = self.deploy_into(self.home)
         self.assertEqual(proc.returncode, 0, proc.stderr.decode())
@@ -141,30 +171,22 @@ class RealDeployTest(unittest.TestCase):
         # byte-identical output to the glob today, and would slip past a test
         # that only looks at this repo's actual files. Reproduced instead in
         # a scratch mirror of the source tree carrying a second *.qml file.
-        mirror = tempfile.mkdtemp(prefix="dev-test-mirror-")
-        self.addCleanup(shutil.rmtree, mirror, ignore_errors=True)
-        os.makedirs(os.path.join(mirror, "bin"))
-        shutil.copy(DEV, os.path.join(mirror, "bin", "dev"))
-        shutil.copy(os.path.join(ROOT, "manifest.json"), mirror)
         # The real Panel.qml, copied verbatim, alongside a synthetic second
-        # QML file below: a mutation that hardcodes the sed target back to
+        # QML file: a mutation that hardcodes the sed target back to
         # "$DEST/Panel.qml" then succeeds on Panel.qml and silently skips the
         # second file, instead of crashing on a missing named file -- which is
         # what a mirror carrying only the synthetic file would produce, for
         # the wrong reason (sed: can't read .../Panel.qml: No such file or
         # directory), never exercising the actual defect this test exists for.
-        shutil.copy(os.path.join(ROOT, "Panel.qml"), mirror)
-        with open(os.path.join(mirror, "Extra.qml"), "w") as handle:
-            handle.write(
+        mirror = self.build_mirror({
+            "Panel.qml": self.real_panel_qml(),
+            "Extra.qml": (
                 'Item {\n'
                 f'  property string moduleName: "{self.published_id}"\n'
                 f'  property string label: "  {self.published_name}"\n'
-                '}\n')
-
-        proc = subprocess.run(
-            ["bash", os.path.join(mirror, "bin", "dev"), "deploy"],
-            capture_output=True, timeout=60, cwd=mirror,
-            env={**os.environ, "HOME": self.home})
+                '}\n'),
+        })
+        proc = self.deploy_mirror(mirror)
         self.assertEqual(proc.returncode, 0, proc.stderr.decode())
 
         with open(os.path.join(self.dest, "Extra.qml")) as handle:
@@ -177,6 +199,52 @@ class RealDeployTest(unittest.TestCase):
                          "a second top-level *.qml file still carries the "
                          "published name -- the rewrite is not reaching "
                          "every *.qml file")
+
+    def test_rewrite_reaches_a_deployed_non_qml_text_file(self):
+        # The defect this closes. The rewrite was scoped to *.qml, so a
+        # deployed Model.js carrying the display name shipped unrewritten: a
+        # sibling plugin's bar tooltip read the PUBLISHED name before its first
+        # snapshot arrived, while its notifications and panel header were
+        # correctly dev-branded. A file-TYPE list narrows on refactor for
+        # exactly the same reason a file-NAME list did, and neither the deploy
+        # nor verify() could see past it, because both were scoped to the same
+        # glob. The rewrite now covers every deployed text file.
+        mirror = self.build_mirror({
+            "Panel.qml": self.real_panel_qml(),
+            "Helper.js": f'function label() {{ return "{self.published_name}" }}\n',
+        })
+        proc = self.deploy_mirror(mirror)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+
+        with open(os.path.join(self.dest, "Helper.js")) as handle:
+            text = handle.read()
+        self.assertNotIn(
+            f'{self.published_name}"', text,
+            "a deployed non-QML text file still carries the published name -- "
+            "the rewrite is not reaching every deployed text file")
+
+    def test_deploy_leaves_a_deployed_binary_file_byte_identical(self):
+        # Widening the rewrite past *.qml puts every deployed file in sed's
+        # path, including preview.png. The target list is therefore built by
+        # asking grep, which treats binary as non-matching, so a binary is
+        # never handed to sed. The blob below deliberately CONTAINS the
+        # published name so the test can tell the difference: if binaries were
+        # in the list it would be rewritten and this assertion would fail,
+        # rather than passing vacuously on a blob sed had nothing to match.
+        blob = (b"\x00\x01\x02\xff"
+                + f'{self.published_name}"'.encode()
+                + b"\xfe\x00\x80\x81")
+        mirror = self.build_mirror({
+            "Panel.qml": self.real_panel_qml(),
+            "blob.bin": blob,
+        })
+        proc = self.deploy_mirror(mirror)
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+
+        with open(os.path.join(self.dest, "blob.bin"), "rb") as handle:
+            self.assertEqual(
+                handle.read(), blob,
+                "a deployed binary file was modified by the identity rewrite")
 
     def test_second_deploy_into_the_same_home_stays_idempotent(self):
         # `up` runs deploy repeatedly (rescan and enable are themselves

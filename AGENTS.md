@@ -197,14 +197,20 @@ and restart again to go back to touching the real system.
   The dev copy runs alongside a published `ssandys.colophon` install rather
   than fighting it, because `bin/dev` rewrites the identity in the *deployed
   copy only* — the source tree stays canonical. It rewrites the manifest id,
-  the display name, and **every top-level QML file**, not `Panel.qml` alone,
-  and then asserts no deployed file still carries the published id or name.
-  That breadth matters here specifically: when the notify call moved into
+  the display name, and every other occurrence of either, across **every
+  deployed file that is text** — binaries are skipped, so `preview.png` never
+  reaches `sed` — and then asserts no deployed file still carries the published
+  id or name.
+
+  That breadth was learned here, twice. When the notify call moved into
   `Service.qml`, the old `Panel.qml`-only rewrite stopped reaching it and this
   plugin's dev copy sent notifications branded exactly like the published one
-  for as long as nobody noticed. Note `Model.js` is *not* covered — it is
-  deployed but is neither a rewrite nor a verification target, so an identity
-  string there still leaks (`ssandys/galley` issue #17).
+  for as long as nobody noticed. The `*.qml` glob that fixed that then missed
+  `Model.js:263` — `tooltipText`'s early return — so the bar tooltip read the
+  published name until the first snapshot arrived, while notifications and the
+  panel header were correctly branded. **A file-type list narrows on refactor
+  for the same reason a filename does**, which is why the target set is now
+  derived rather than listed (`ssandys/galley` issue #17, fixed).
 
 - `bin/dev`, `bin/dev-watch` and `bin/test` contain no plugin-specific
   literal — everything comes from `manifest.json` at runtime — so they are
