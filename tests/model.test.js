@@ -306,6 +306,28 @@ test("bootLabel never returns an inherited Object.prototype member", () => {
   }
 })
 
+test("only genuinely absent boot state hides the line, not merely falsy state", () => {
+  // The coercion in bootLabel and bootIsToggleable tests undefined and null
+  // explicitly rather than using the shorter `String(x || "")` that other
+  // functions in this file use. That is deliberate and load-bearing: `||`
+  // collapses every falsy value, so a unitFileState of 0 or false -- reachable
+  // if the collector's JSON shape ever changes, since the value is JSON-derived
+  // -- would become "", and bootLabel treats "" as "hide the boot line".
+  //
+  // A vanishing boot line is the exact defect the boot toggle was built to fix.
+  // This pins the distinction so the coercion cannot be "simplified" into that
+  // bug, whether it stays inline or moves into a shared helper.
+  assert.equal(Model.bootLabel(0), "0")
+  assert.equal(Model.bootLabel(false), "false")
+  assert.equal(Model.bootLabel(NaN), "NaN")
+  assert.equal(Model.bootIsToggleable(0), false)
+  assert.equal(Model.bootIsToggleable(false), false)
+  // And the genuinely-absent cases still do hide it.
+  assert.equal(Model.bootLabel(""), "")
+  assert.equal(Model.bootLabel(undefined), "")
+  assert.equal(Model.bootLabel(null), "")
+})
+
 test("bootIsToggleable is true for exactly the two states systemd can flip", () => {
   assert.equal(Model.bootIsToggleable("enabled"), true)
   assert.equal(Model.bootIsToggleable("disabled"), true)

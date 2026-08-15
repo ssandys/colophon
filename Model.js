@@ -130,9 +130,19 @@ var BOOT_LABELS = {
   "transient": "transient unit"
 }
 
+// Deliberately not `String(x || "")`, the shorter idiom used elsewhere in this
+// file: `||` collapses every falsy value, so a unitFileState of 0 or false --
+// reachable if the collector's JSON shape ever changes, since the value is
+// JSON-derived -- would become "", and bootLabel treats "" as "hide the boot
+// line". A vanishing boot line is the defect the boot toggle was built to fix.
+// Only genuinely absent state hides it. Pinned by a test in model.test.js.
+function coerceUnitFileState(unitFileState) {
+  return String(unitFileState === undefined || unitFileState === null
+                ? "" : unitFileState)
+}
+
 function bootLabel(unitFileState) {
-  var state = String(unitFileState === undefined || unitFileState === null
-                     ? "" : unitFileState)
+  var state = coerceUnitFileState(unitFileState)
   if (state === "") return ""
   // hasOwnProperty.call, not a bare BOOT_LABELS[state]: a bare lookup walks the
   // prototype chain, so a state named "constructor" or "toString" returns an
@@ -146,8 +156,7 @@ function bootLabel(unitFileState) {
 // would have to choose between making it permanent and clearing it. Those
 // states show their label with no switch.
 function bootIsToggleable(unitFileState) {
-  var state = String(unitFileState === undefined || unitFileState === null
-                     ? "" : unitFileState)
+  var state = coerceUnitFileState(unitFileState)
   return state === "enabled" || state === "disabled"
 }
 
