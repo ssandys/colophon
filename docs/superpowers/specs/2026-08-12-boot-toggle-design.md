@@ -263,14 +263,25 @@ dialog resolves rather than after, and the mid-ramp path described below. Both
 are cosmetic-timing rather than correctness, and both would have been visible as
 a failure if badly broken.
 
-**Still unverified: the mid-ramp guard.** `Service.qml`'s settle ramp once
-cleared `optimisticBootState` unguarded, so clicking the switch roughly three
-seconds into a ramp left over from a previous action snapped the knob back while
-the dialog was still open. The guard landed in `4da9d73`; the *path* has never
-been walked. Reaching it needs a deliberate sequence — click stop or restart,
-wait two seconds, then flip the boot switch — and no test in this repository can
-reach it, because `qmllint` cannot resolve `qs.Ui` and the bug is timing-
-dependent. Left open rather than assumed.
+**Confirmed 2026-08-15: the mid-ramp guard holds.** `Service.qml`'s settle ramp
+once cleared `optimisticBootState` unguarded, so clicking the switch roughly
+three seconds into a ramp left over from a previous action snapped the knob back
+while the dialog was still open. The guard landed in `4da9d73`, and no test in
+this repository can reach the path — `qmllint` cannot resolve `qs.Ui` and the
+bug is timing-dependent — so it stayed marked unverified until someone walked it.
+
+The owner walked it against the deployed build at `f0fc537` and reported: *"the
+knob held, dialog stayed open."* A screen recording of the run corroborates the
+surrounding state — the service `stopped` with the ramp running and the boot line
+reading `enabled at boot`, then the same line reading `disabled at boot` after
+the flip, so the change took effect and the label followed on the next poll.
+
+Confirmed in the same run, and likewise unreachable by any test here: the
+switch's tooltip renders. `ToggleSwitch` has no `tooltipText` property — that
+belongs to `Button` — so this needed a nested `PanelToolTip` bound to the
+switch's `containsMouse` alias, and nothing in the suite could tell us whether
+that binding resolved. It displays *"Start ollama.service at boot -- does not
+start it now"* on hover.
 
 The 2026-08-11 spec recorded a hand-verification claim that turned out false and
 had to be corrected, and earlier in this branch's own execution a check was
