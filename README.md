@@ -101,6 +101,10 @@ models, 19.7 GB` while not.
   than reporting a false timeout while the load is still quietly succeeding.
   The row reads "warming…" and the status line reads "starting…" for as long
   as either step takes.
+- **The context slider** sets how much context a warmed model gets, as
+  Ollama's `num_ctx` — measured in *tokens*, not bytes. It snaps to powers of
+  two from 4096 to 131072, and applies to the next warm; a model already
+  loaded keeps its context until it is unloaded.
 - **The switch on the boot line** decides whether `ollama.service` starts at
   boot. It moves the instant you click it, then asks you to authenticate — see
   Boot start below for what it does and does not change.
@@ -151,6 +155,7 @@ directly in `shell.json`. Defaults and ranges below come straight from
 | `pollIntervalRunningSec` | integer | 10 | 5–120 | Poll cadence while the panel is closed and the server is up. Also used during the brief `starting`/`stopping` transients — they resolve on their own, and a fourth interval key isn't worth having just for them. |
 | `pollIntervalIdleSec` | integer | 30 | 5–300 | Poll cadence while the panel is closed and the server is down (`stopped`, `failed`, or `missing`). |
 | `keepAliveMinutes` | integer | 5 | 1–120 | How long a model stays warm after loading, sent as `keep_alive` on every warm. |
+| `contextSize` | integer | 8192 | 4096–131072 | The context window for a warmed model, sent as `options.num_ctx` on every warm. The panel's slider snaps to powers of two; the settings panel allows multiples of 4096. |
 | `apiBase` | string | `http://127.0.0.1:11434` | — | Where Colophon probes for the Ollama API. |
 | `showInstalledModels` | boolean | true | — | Show the installed-model list in the panel. |
 | `notifyServiceDied` | boolean | true | — | Desktop notification when the service dies unexpectedly. |
