@@ -30,6 +30,8 @@ In:
 - a `contextSize` setting (default 8192) in `manifest.json`, plus schema bounds
   4096–131072
 - a snapping slider in `Panel.qml`, rendered from an index over a step list
+- an editable number field beside the slider in `Panel.qml`, accepting any
+  whole value in range
 - pure snap/round-trip helpers in `Model.js` (`CONTEXT_STEPS`,
   `snapContext`, `contextIndex`, `contextAt`)
 - a `--context-size N` flag on the warm verb in `scripts/colophon_action.py`,
@@ -44,9 +46,6 @@ Out:
   slider drag would discard a loaded model the user may be mid-generation on.
 - **Changing context on unload.** An unload posts `keep_alive: 0` and nothing
   else; there is nothing for `num_ctx` to mean there.
-- **A free-form size field.** Every arbitrary value would need a validation
-  story; the slider cannot produce one anyway. The shell's settings panel is
-  the escape hatch, constrained by the schema.
 - **A second slider for the running server.** Context is per-load, not per
   server; one control is enough.
 
@@ -71,10 +70,26 @@ onMoved: function (index) {
 
 Stepping by index is what makes the snap a snap. A value-based slider over a
 log or linear range would have to round anyway; an index-based one *cannot*
-land off a step. The value text beside it shows `Model.snapContext(
-service.contextSize)`, so a size written by the shell's settings panel — which
-allows any multiple of 4096, e.g. 12288 — still renders the nearest step the
-knob is on.
+land off a step.
+
+### The editable number
+
+Beside the slider sits a compact `TextField` (the `qs.Ui` one, a QQC
+TextField) holding the actual setting — not the snapped step. Click it and it
+becomes a text input restricted by `IntValidator { bottom: 4096; top:
+131072 }`, so typing `18000` is allowed and typing `0` is blocked at the
+keyboard. On `editingFinished` (Enter or focus loss) the text is parsed,
+clamped to the same bounds, and persisted through `setContextSize`; a value
+that fails to parse — an emptied field — reverts to the current setting.
+
+The field re-binds `text` to the setting after every commit, so a slider drag
+or the shell's settings panel keeps it live when it is not being edited.
+Typed values are sent to Ollama exactly; only the slider knob approximates to
+the nearest step, and the spec's cross-language guard still pins the slider's
+steps to the validator range.
+
+The manifest schema's step is `1` (any whole value in range), matching the
+field; the slider's own steps remain powers of two.
 
 `PanelSlider`'s `value` binding plus its `onValueChanged: if (!dragging)
 liveValue = value` guard already prevents the persisted setting from fighting
@@ -149,6 +164,8 @@ Testable, all green as of writing (163 Python + 31 JS):
 
 - `--context-size` parsing: non-integer, out of range (0, 2048, 131073,
   99999999, negative), and both boundary values accepted
+- an in-range, non-step value (18000) accepted and carried as-is — the typed
+  path in the panel
 - plan/dry-run output carries `"num_ctx": N` for generate and embed; no
   `options` block when the flag is absent; `load_body` treats a falsy 0 as
   absent
@@ -160,7 +177,8 @@ Testable, all green as of writing (163 Python + 31 JS):
 Not testable in this repository, and therefore **unverified until someone
 walks it against the live shell**:
 
-1. the slider renders and its drag both persists and does not snap back
+1. the slider and the editable field render, and a drag or a typed commit
+   both persists and does not snap back
    (`qmllint` cannot resolve `qs.Ui`, so nothing in the suite can reach it)
 2. a warm posts `num_ctx` and the model loads — which would be confirmed, if
    ever, through the existing fixture-based collector and a manual warm
@@ -171,11 +189,11 @@ spec's verification section uses.
 
 ## Known limitations
 
-- **The shell's settings panel can produce a non-step value.** The schema
-  allows any multiple of 4096; 12288 passes the action script's range check and
-  is sent as-is. The knob snaps to the nearest step (8192) while the sent value
-  stays 12288. Acceptable: Ollama accepts any `num_ctx`, and the slider is the
-  primary surface.
+- **The slider and the typed value can disagree about position.** A typed
+  size like 18000 is sent exactly, while the knob sits at the nearest step
+  (16384). The field shows the real value, so this reads as intended rather
+  than as a rounding error, but the knob is an approximation for non-step
+  values by design.
 - **A model with a smaller context maximum than the slider's 131072 caps the
   effective context silently.** That is Ollama's behavior, not a bug Colophon
   can see from outside the process.

@@ -265,6 +265,13 @@ class ArgumentTest(unittest.TestCase):
                               "--dry-run"])
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_a_typed_in_range_context_size_is_accepted(self):
+        # The panel's editable number field can send any whole value in range,
+        # not just a power of two; 18000 is a size a user can actually type.
+        result = run(["warm", "x:1", "--context-size", "18000", "--dry-run"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('"num_ctx": 18000', result.stdout)
+
     def test_the_range_boundaries_are_accepted(self):
         for value in ("1", "120"):
             with self.subTest(value=value):
