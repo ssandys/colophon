@@ -76,6 +76,7 @@ Item {
   readonly property int runningInterval: setting("pollIntervalRunningSec", 10)
   readonly property int idleInterval: setting("pollIntervalIdleSec", 30)
   readonly property int keepAliveMinutes: setting("keepAliveMinutes", 5)
+  readonly property int contextSize: setting("contextSize", 8192)
   readonly property string apiBase: setting("apiBase", "http://127.0.0.1:11434")
   readonly property bool showInstalledModels: setting("showInstalledModels", true)
   readonly property bool notifyServiceDied: setting("notifyServiceDied", true)
@@ -177,7 +178,10 @@ Item {
     var args = ["python3", root.actionPath, verb]
     if (target) args.push(target)
     args.push("--api-base", root.apiBase)
-    if (verb === "warm") args.push("--keep-alive", String(root.keepAliveMinutes))
+    if (verb === "warm") {
+      args.push("--keep-alive", String(root.keepAliveMinutes))
+      args.push("--context-size", String(root.contextSize))
+    }
     if (kind) args.push("--kind", kind)
     actionProc.command = args
     actionProc.running = true

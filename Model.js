@@ -228,6 +228,62 @@ function processorLabel(model) {
   return Number(model.gpuPercent) + "% GPU"
 }
 
+// Context-window sizes the panel slider snaps to. Ollama reads these as
+// num_ctx tokens; the powers of two below are the sizes its docs and common
+// hardware actually support. The slider moves over this list's INDEX, not its
+// values -- that is what makes the snap a snap and not a linear step.
+//
+// CONTEXT_MIN/CONTEXT_MAX are the authoritative bounds the action script
+// validates against; tests/test_cross_language.py asserts this list stays
+// inside them and this file stays in agreement with Python's constants.
+var CONTEXT_STEPS = [4096, 8192, 16384, 32768, 65536, 131072]
+var CONTEXT_MIN = 4096
+var CONTEXT_MAX = 131072
+var CONTEXT_DEFAULT = 8192
+var CONTEXT_DEFAULT_INDEX = 1
+
+function contextCount() {
+  return CONTEXT_STEPS.length
+}
+
+function contextAt(index) {
+  var i = Number(index)
+  if (!isFinite(i)) return CONTEXT_DEFAULT
+  i = Math.round(i)
+  if (i < 0) return CONTEXT_STEPS[0]
+  if (i >= CONTEXT_STEPS.length)
+    return CONTEXT_STEPS[CONTEXT_STEPS.length - 1]
+  return CONTEXT_STEPS[i]
+}
+
+// Nearest step, clamped to the range. Ties resolve to the LOWER step: a
+// setting of 12288 (halfway between 8192 and 16384) reads as 8192, never a
+// value the slider cannot produce.
+function snapContext(value) {
+  var target = Number(value)
+  if (!isFinite(target)) return CONTEXT_DEFAULT
+  var best = CONTEXT_STEPS[0]
+  var bestDistance = Math.abs(target - best)
+  for (var i = 1; i < CONTEXT_STEPS.length; i++) {
+    var distance = Math.abs(target - CONTEXT_STEPS[i])
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = CONTEXT_STEPS[i]
+    }
+  }
+  return best
+}
+
+// The slider's `value` (an index into CONTEXT_STEPS) for a given context size.
+// Anything not on a step snaps first, so a value written by the shell's
+// settings panel still lands the knob on a real step.
+function contextIndex(value) {
+  var snapped = snapContext(value)
+  for (var i = 0; i < CONTEXT_STEPS.length; i++)
+    if (CONTEXT_STEPS[i] === snapped) return i
+  return CONTEXT_DEFAULT_INDEX
+}
+
 function canStart(status, actionInProgress) {
   if (actionInProgress !== "") return false
   return status === "stopped" || status === "failed"
@@ -326,6 +382,15 @@ if (typeof module !== "undefined") {
     badgeText: badgeText,
     plural: plural,
     processorLabel: processorLabel,
+    CONTEXT_STEPS: CONTEXT_STEPS,
+    CONTEXT_MIN: CONTEXT_MIN,
+    CONTEXT_MAX: CONTEXT_MAX,
+    CONTEXT_DEFAULT: CONTEXT_DEFAULT,
+    CONTEXT_DEFAULT_INDEX: CONTEXT_DEFAULT_INDEX,
+    contextCount: contextCount,
+    contextAt: contextAt,
+    snapContext: snapContext,
+    contextIndex: contextIndex,
     canStart: canStart,
     canStop: canStop,
     canRestart: canRestart,

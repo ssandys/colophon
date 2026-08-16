@@ -2,7 +2,8 @@
 """Perform one Colophon action.
 
   colophon_action.py start|stop|restart|enable|disable            [--dry-run]
-  colophon_action.py warm   <model> [--kind K] [--keep-alive MIN] [--dry-run]
+  colophon_action.py warm   <model> [--kind K] [--keep-alive MIN]
+                                   [--context-size N]               [--dry-run]
   colophon_action.py unload <model> [--kind K]                    [--dry-run]
 
 Common flags: --api-base URL.
@@ -40,6 +41,12 @@ KINDS = ("generate", "embed")
 
 DEFAULT_API_BASE = "http://127.0.0.1:11434"
 DEFAULT_KEEP_ALIVE_MIN = 5
+
+# The context window (Ollama's num_ctx, in tokens) sent when warming a model.
+# Bounds only -- the panel slider snaps to the powers of two in Model.js's
+# CONTEXT_STEPS, and tests/test_cross_language.py asserts the two agree.
+CONTEXT_MIN = 4096
+CONTEXT_MAX = 131072
 
 # The dialog's patience budget, not a command timeout: the call blocks while
 # Omarchy's authentication prompt is open. 30s was chosen when a prompt was
@@ -84,16 +91,19 @@ def endpoint_for(kind):
     return "/api/embed" if kind == "embed" else "/api/generate"
 
 
-def load_body(model, kind, keep_alive):
+def load_body(model, kind, keep_alive, context_size=None):
     body = {"model": model, "keep_alive": keep_alive}
     if kind == "embed":
         # /api/embed requires an input field; an empty one loads or unloads
         # without computing anything.
         body["input"] = ""
+    if context_size:
+        body["options"] = {"num_ctx": context_size}
     return body
 
 
-def plan(verb, target, kind, keep_alive_min, api_base, running):
+def plan(verb, target, kind, keep_alive_min, api_base, running,
+         context_size=None):
     """The steps this verb would perform, as human-readable lines."""
     if verb in SYSTEMCTL_VERBS:
         return [" ".join(systemctl_command(verb))]
@@ -106,7 +116,7 @@ def plan(verb, target, kind, keep_alive_min, api_base, running):
         steps.append("WAIT " + base + "/api/version up to "
                      + str(API_WAIT_DEADLINE_SEC) + "s")
     steps.append("POST " + base + endpoint_for(kind) + " "
-                 + json.dumps(load_body(target, kind, keep_alive),
+                 + json.dumps(load_body(target, kind, keep_alive, context_size),
                               sort_keys=True))
     return steps
 
@@ -184,7 +194,7 @@ def run_systemctl(verb):
     return 0
 
 
-def execute(verb, target, kind, keep_alive_min, api_base):
+def execute(verb, target, kind, keep_alive_min, api_base, context_size=None):
     if verb in SYSTEMCTL_VERBS:
         return run_systemctl(verb)
 
@@ -200,7 +210,7 @@ def execute(verb, target, kind, keep_alive_min, api_base):
 
     keep_alive = 0 if verb == "unload" else str(keep_alive_min) + "m"
     url = str(api_base).rstrip("/") + endpoint_for(kind)
-    return post_json(url, load_body(target, kind, keep_alive))
+    return post_json(url, load_body(target, kind, keep_alive, context_size))
 
 
 def main(argv):
@@ -218,6 +228,7 @@ def main(argv):
     kind = "generate"
     keep_alive_raw = DEFAULT_KEEP_ALIVE_MIN
     api_base = DEFAULT_API_BASE
+    context_raw = None
     while args:
         arg = args.pop(0)
         if arg == "--dry-run":
@@ -226,6 +237,8 @@ def main(argv):
             kind = args.pop(0)
         elif arg == "--keep-alive" and args:
             keep_alive_raw = args.pop(0)
+        elif arg == "--context-size" and args:
+            context_raw = args.pop(0)
         elif arg == "--api-base" and args:
             api_base = args.pop(0)
         else:
@@ -253,6 +266,22 @@ def main(argv):
         sys.stderr.write(
             "colophon_action: --keep-alive must be between 1 and 120 minutes\n")
         return 2
+    # Same clamping argument as keep-alive: the panel only ever sends a step,
+    # but the script cannot assume it, and an out-of-range num_ctx would either
+    # fail the model load or silently cap it at the model's own maximum.
+    context_size = None
+    if context_raw is not None:
+        try:
+            context_size = int(context_raw)
+        except (TypeError, ValueError):
+            sys.stderr.write(
+                "colophon_action: --context-size must be an integer\n")
+            return 2
+        if context_size < CONTEXT_MIN or context_size > CONTEXT_MAX:
+            sys.stderr.write(
+                "colophon_action: --context-size must be between "
+                + str(CONTEXT_MIN) + " and " + str(CONTEXT_MAX) + "\n")
+            return 2
     # A malformed base would otherwise fail api_reachable() like an ordinary
     # refusal, and warm would go on to start the LOCAL unit because of it.
     if not str(api_base).startswith(("http://", "https://")):
@@ -271,10 +300,11 @@ def main(argv):
             return 3
 
     if dry_run:
-        for line in plan(verb, target, kind, keep_alive_min, api_base, False):
+        for line in plan(verb, target, kind, keep_alive_min, api_base, False,
+                         context_size):
             sys.stdout.write(line + "\n")
         return 0
-    return execute(verb, target, kind, keep_alive_min, api_base)
+    return execute(verb, target, kind, keep_alive_min, api_base, context_size)
 
 
 if __name__ == "__main__":

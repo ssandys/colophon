@@ -27,6 +27,18 @@ Panel {
     return value
   }
 
+  // Persist a widget setting the way omarchy.power persists its percentage
+  // toggle: patch the inline shell.json entry via the shell, and update this
+  // panel's own settings object in the same breath so Service.qml (which binds
+  // to it) sees the new value without waiting for a reload. updateEntryInline
+  // diffs before writing, so setting the same value twice does not dirty
+  // shell.json.
+  function setContextSize(value) {
+    root.settings = Object.assign({}, root.settings, { contextSize: value })
+    if (root.bar && root.bar.shell)
+      root.bar.shell.updateEntryInline(root.moduleName, root.settings)
+  }
+
   readonly property var snap: service.snapshot
   readonly property string status: service.effectiveStatus
 
@@ -345,6 +357,48 @@ Panel {
           }
 
           Item { Layout.fillWidth: true }
+        }
+
+        // ── Context window ──
+        // How much context a warmed model gets (Ollama's num_ctx, in tokens).
+        // The slider moves over the INDEX of Model.js's CONTEXT_STEPS, so it
+        // can only land on a power of two. It configures the next warm; a
+        // model already loaded keeps its context until it is unloaded.
+        RowLayout {
+          Layout.fillWidth: true
+          Layout.leftMargin: Style.space(14)
+          Layout.rightMargin: Style.space(14)
+          spacing: Style.space(6)
+
+          Text {
+            text: "context"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+
+          PanelSlider {
+            id: contextSlider
+            bar: root.bar
+            Layout.fillWidth: true
+            minimum: 0
+            maximum: Model.contextCount() - 1
+            step: 1
+            integer: true
+            tickCount: Model.contextCount()
+            value: Model.contextIndex(service.contextSize)
+            onMoved: function (index) {
+              root.setContextSize(Model.contextAt(index))
+            }
+          }
+
+          Text {
+            text: String(Model.snapContext(service.contextSize))
+            color: root.fg
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
         }
 
         // ── Error strip ──
