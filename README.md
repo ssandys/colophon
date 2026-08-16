@@ -104,10 +104,10 @@ models, 19.7 GB` while not.
 - **The context slider** sets how much context a warmed model gets, as
   Ollama's `num_ctx` — measured in *tokens*, not bytes. It snaps to powers of
   two from 4096 to 131072. The number beside it is editable: click it to type
-  any whole value in range, `18000` or `24k` for 24000, and it's sent exactly
-  (the field shows the expanded number after you commit). Either way it
-  applies to the next warm; a model already loaded keeps its context until it
-  is unloaded.
+  a value. A plain number, like `18000`, is sent exactly. The `k` shorthand
+  resolves to the nearest power-of-two step — `16k` is 16384, `8k` is 8192.
+  Either way it applies to the next warm; a model already loaded keeps its
+  context until it is unloaded.
 - **The switch on the boot line** decides whether `ollama.service` starts at
   boot. It moves the instant you click it, then asks you to authenticate — see
   Boot start below for what it does and does not change.
@@ -158,7 +158,7 @@ directly in `shell.json`. Defaults and ranges below come straight from
 | `pollIntervalRunningSec` | integer | 10 | 5–120 | Poll cadence while the panel is closed and the server is up. Also used during the brief `starting`/`stopping` transients — they resolve on their own, and a fourth interval key isn't worth having just for them. |
 | `pollIntervalIdleSec` | integer | 30 | 5–300 | Poll cadence while the panel is closed and the server is down (`stopped`, `failed`, or `missing`). |
 | `keepAliveMinutes` | integer | 5 | 1–120 | How long a model stays warm after loading, sent as `keep_alive` on every warm. |
-| `contextSize` | integer | 8192 | 4096–131072 | The context window for a warmed model, sent as `options.num_ctx` on every warm. The slider snaps to powers of two; the number beside it accepts any whole value in range, including `k` shorthand (`24k` = 24000). |
+| `contextSize` | integer | 8192 | 4096–131072 | The context window for a warmed model, sent as `options.num_ctx` on every warm. The slider snaps to powers of two; the number beside it accepts any whole value in range, and `k` shorthand resolves to the nearest power of two (`16k` = 16384). |
 | `apiBase` | string | `http://127.0.0.1:11434` | — | Where Colophon probes for the Ollama API. |
 | `showInstalledModels` | boolean | true | — | Show the installed-model list in the panel. |
 | `notifyServiceDied` | boolean | true | — | Desktop notification when the service dies unexpectedly. |

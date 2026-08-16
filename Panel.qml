@@ -392,14 +392,16 @@ Panel {
             }
           }
 
-          // The number is editable: click it to type any size in range (e.g.
-          // 18000 or 24k), not just a step. The slider knob still snaps to the
-          // nearest power of two for position, but the typed value is sent
-          // to Ollama exactly. text is re-bound to the setting whenever
-          // editing finishes so a slider drag or the settings panel keeps it
-          // live. No IntValidator here: it would block the "k" in 24k at the
-          // keyboard, so acceptance happens in Model.parseContextSize on
-          // commit, with garbage reverting the field to the current value.
+          // The number is editable: click it to type a value in range -- a
+          // plain number like 18000 is sent exactly, while k shorthand
+          // resolves to the nearest power-of-two step (16k is 16384, not
+          // 16000). The slider knob still snaps to the nearest step for
+          // position, but the committed value is sent to Ollama exactly.
+          // text is re-bound to the setting whenever editing finishes so a
+          // slider drag or the settings panel keeps it live. No IntValidator
+          // here: it would block the "k" in 16k at the keyboard, so
+          // acceptance happens in Model.parseContextSize on commit, with
+          // garbage reverting the field to the current value.
           TextField {
             id: contextField
             text: String(service.contextSize)

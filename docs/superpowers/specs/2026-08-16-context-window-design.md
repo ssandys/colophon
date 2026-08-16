@@ -82,11 +82,20 @@ a size, and on `editingFinished` (Enter or focus loss) the text is parsed by
 reverts to the current setting.
 
 There is deliberately **no `IntValidator`**. A validator blocks keystrokes,
-and it would block the `k` shorthand: `parseContextSize` accepts a plain
-integer (`18000`) or a `k` suffix (`24k` = 24000, case-insensitive), converts
-it, and returns `NaN` for anything else — including `2.4k`, `24kk`, `0x20`
-(which bare `parseInt` would read as `0`), and negative values. The regex
-guard exists precisely so `0x20` cannot reach `parseInt`.
+and it would block the `k` shorthand. `parseContextSize` distinguishes two
+input kinds:
+
+- **Plain integers** (`18000`) are taken exactly — the field is the exact
+  control, the slider is the snapping one.
+- **`k` shorthand** (`16k`, `16K`) means the colloquial size people mean when
+  they say "16k context": the nearest power-of-two step this slider offers,
+  via `snapContext(16000)` — so `16k` is 16384 and `8k` is 8192, never 16000
+  or 8000. Out-of-range shorthand (`1k`, `9999k`) clamps to a real step.
+
+Anything else — `2.4k`, `24kk`, `0x20` (which bare `parseInt` would read as
+`0`), negatives, an emptied field — returns `NaN` and reverts the field to
+the current setting. The regex guard exists precisely so `0x20` cannot reach
+`parseInt`.
 
 The field re-binds `text` to the setting after every commit, so a slider drag
 or the shell's settings panel keeps it live when it is not being edited.
@@ -178,7 +187,8 @@ Testable, all green as of writing (163 Python + 31 JS):
 - `snapContext`/`contextIndex`/`contextAt`: index round-trips, clamping at both
   ends, NaN/null/undefined coercion, and the halfway tie resolving to the lower
   step
-- `parseContextSize`: plain and `k`-shorthand integers, and the whole garbage
+- `parseContextSize`: plain integers exact, `k` shorthand resolving to the
+  nearest step (`8k`→8192, `16k`→16384, `24k`→16384), and the whole garbage
   class (`2.4k`, `0x20`, negatives, empty) returning `NaN`
 - the cross-language guards above
 

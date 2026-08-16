@@ -284,22 +284,26 @@ function contextIndex(value) {
   return CONTEXT_DEFAULT_INDEX
 }
 
-// Parse what a user typed into the context field. Accepts a plain integer
-// ("18000") or the k shorthand ("24k", "24K") meaning that many thousands,
-// which is how these sizes read in conversation. Returns the integer, or NaN
-// for input that means nothing as a context size. Clamping to
-// CONTEXT_MIN/CONTEXT_MAX is the caller's job -- parse only, don't decide.
-// The \d+ guard matters: parseInt("0x20") returns 0, so "0x20" must not pass.
+// Parse what a user typed into the context field. A plain integer ("18000")
+// is taken exactly. The k shorthand ("16k", "16K") means the colloquial
+// context size people actually mean when they say "16k": 16 thousand, rounded
+// to the nearest power-of-two step this slider offers -- so 16k is 16384 and
+// 8k is 8192, not 16000 or 8000. Returns the integer, or NaN for input that
+// means nothing as a context size. Clamping to CONTEXT_MIN/CONTEXT_MAX is the
+// caller's job -- parse only, don't decide. The \d+ guard matters:
+// parseInt("0x20") returns 0, so "0x20" must not pass.
 function parseContextSize(text) {
   var raw = String(text == null ? "" : text).trim().toLowerCase()
   if (raw === "") return NaN
-  var multiplier = 1
+  var shorthand = false
   if (raw.charAt(raw.length - 1) === "k") {
-    multiplier = 1000
+    shorthand = true
     raw = raw.slice(0, raw.length - 1)
   }
   if (!/^\d+$/.test(raw)) return NaN
-  return parseInt(raw, 10) * multiplier
+  var value = parseInt(raw, 10)
+  if (shorthand) return snapContext(value * 1000)
+  return value
 }
 
 function canStart(status, actionInProgress) {

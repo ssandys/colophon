@@ -392,10 +392,24 @@ test("contextAt clamps and contextIndex snaps to the nearest step", () => {
   }
 })
 
-test("parseContextSize converts k shorthand and rejects garbage", () => {
-  assert.equal(Model.parseContextSize("24k"), 24000)
-  assert.equal(Model.parseContextSize("24K"), 24000)
-  assert.equal(Model.parseContextSize("64k"), 64000)
+test("parseContextSize resolves k to the nearest power-of-two step", () => {
+  // "16k" is the colloquial size people mean -- 16384 tokens, not 16000.
+  assert.equal(Model.parseContextSize("8k"), 8192)
+  assert.equal(Model.parseContextSize("16k"), 16384)
+  assert.equal(Model.parseContextSize("16K"), 16384)
+  assert.equal(Model.parseContextSize("32k"), 32768)
+  assert.equal(Model.parseContextSize("64k"), 65536)
+  assert.equal(Model.parseContextSize("128k"), 131072)
+  assert.equal(Model.parseContextSize("4k"), 4096)
+  // Values that land between steps resolve to the nearer one; ties go down.
+  assert.equal(Model.parseContextSize("24k"), 16384)
+  assert.equal(Model.parseContextSize("60k"), 65536)
+  // Out-of-range shorthand clamps to a real step, never an invented size.
+  assert.equal(Model.parseContextSize("1k"), 4096)
+  assert.equal(Model.parseContextSize("9999k"), 131072)
+})
+
+test("parseContextSize takes plain integers exactly and rejects garbage", () => {
   assert.equal(Model.parseContextSize("18000"), 18000)
   assert.equal(Model.parseContextSize(" 8192 "), 8192)
   // The regex guard, not parseInt: parseInt("0x20") is 0 and must not pass.
