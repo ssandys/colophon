@@ -392,21 +392,22 @@ test("contextAt clamps and contextIndex snaps to the nearest step", () => {
   }
 })
 
-test("parseContextSize resolves k to the nearest power-of-two step", () => {
-  // "16k" is the colloquial size people mean -- 16384 tokens, not 16000.
+test("parseContextSize k shorthand always means a binary thousand", () => {
+  // k is 1024, always: 16k is 16384, and a non-power-of-two k stays exact
+  // too -- 24k is 24576, 18k is 18432, never a snapped or rounded preset.
   assert.equal(Model.parseContextSize("8k"), 8192)
   assert.equal(Model.parseContextSize("16k"), 16384)
   assert.equal(Model.parseContextSize("16K"), 16384)
   assert.equal(Model.parseContextSize("32k"), 32768)
   assert.equal(Model.parseContextSize("64k"), 65536)
   assert.equal(Model.parseContextSize("128k"), 131072)
-  assert.equal(Model.parseContextSize("4k"), 4096)
-  // Values that land between steps resolve to the nearer one; ties go down.
-  assert.equal(Model.parseContextSize("24k"), 16384)
-  assert.equal(Model.parseContextSize("60k"), 65536)
-  // Out-of-range shorthand clamps to a real step, never an invented size.
-  assert.equal(Model.parseContextSize("1k"), 4096)
-  assert.equal(Model.parseContextSize("9999k"), 131072)
+  assert.equal(Model.parseContextSize("24k"), 24576)
+  assert.equal(Model.parseContextSize("18k"), 18432)
+  assert.equal(Model.parseContextSize("60k"), 61440)
+  assert.equal(Model.parseContextSize("100k"), 102400)
+  // Out-of-range shorthand is clamped by the caller, not here.
+  assert.equal(Model.parseContextSize("1k"), 1024)
+  assert.equal(Model.parseContextSize("256k"), 262144)
 })
 
 test("parseContextSize takes plain integers exactly and rejects garbage", () => {

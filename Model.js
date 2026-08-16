@@ -285,10 +285,9 @@ function contextIndex(value) {
 }
 
 // Parse what a user typed into the context field. A plain integer ("18000")
-// is taken exactly. The k shorthand ("16k", "16K") means the colloquial
-// context size people actually mean when they say "16k": 16 thousand, rounded
-// to the nearest power-of-two step this slider offers -- so 16k is 16384 and
-// 8k is 8192, not 16000 or 8000. Returns the integer, or NaN for input that
+// is taken exactly. The k shorthand ("16k", "16K") always means a binary
+// thousand: 16k is 16384, 24k is 24576, 18k is 18432 -- the size in tokens
+// those names denote in practice. Returns the integer, or NaN for input that
 // means nothing as a context size. Clamping to CONTEXT_MIN/CONTEXT_MAX is the
 // caller's job -- parse only, don't decide. The \d+ guard matters:
 // parseInt("0x20") returns 0, so "0x20" must not pass.
@@ -302,7 +301,7 @@ function parseContextSize(text) {
   }
   if (!/^\d+$/.test(raw)) return NaN
   var value = parseInt(raw, 10)
-  if (shorthand) return snapContext(value * 1000)
+  if (shorthand) return value * 1024
   return value
 }
 

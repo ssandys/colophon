@@ -87,10 +87,10 @@ input kinds:
 
 - **Plain integers** (`18000`) are taken exactly — the field is the exact
   control, the slider is the snapping one.
-- **`k` shorthand** (`16k`, `16K`) means the colloquial size people mean when
-  they say "16k context": the nearest power-of-two step this slider offers,
-  via `snapContext(16000)` — so `16k` is 16384 and `8k` is 8192, never 16000
-  or 8000. Out-of-range shorthand (`1k`, `9999k`) clamps to a real step.
+- **`k` shorthand** (`16k`, `16K`) is always a binary thousand, ×1024 — the
+  size those names denote in practice. `16k` is 16384 and `8k` is 8192, and
+  a non-power-of-two k stays exact too: `24k` is 24576, `18k` is 18432. It is
+  never snapped or rounded to a preset step.
 
 Anything else — `2.4k`, `24kk`, `0x20` (which bare `parseInt` would read as
 `0`), negatives, an emptied field — returns `NaN` and reverts the field to
@@ -187,9 +187,9 @@ Testable, all green as of writing (163 Python + 31 JS):
 - `snapContext`/`contextIndex`/`contextAt`: index round-trips, clamping at both
   ends, NaN/null/undefined coercion, and the halfway tie resolving to the lower
   step
-- `parseContextSize`: plain integers exact, `k` shorthand resolving to the
-  nearest step (`8k`→8192, `16k`→16384, `24k`→16384), and the whole garbage
-  class (`2.4k`, `0x20`, negatives, empty) returning `NaN`
+- `parseContextSize`: plain integers exact; `k` shorthand always a binary
+  thousand (`8k`→8192, `16k`→16384, `24k`→24576, `18k`→18432); and the whole
+  garbage class (`2.4k`, `0x20`, negatives, empty) returning `NaN`
 - the cross-language guards above
 
 Not testable in this repository, and therefore **unverified until someone
