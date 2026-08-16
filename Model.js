@@ -284,6 +284,24 @@ function contextIndex(value) {
   return CONTEXT_DEFAULT_INDEX
 }
 
+// Parse what a user typed into the context field. Accepts a plain integer
+// ("18000") or the k shorthand ("24k", "24K") meaning that many thousands,
+// which is how these sizes read in conversation. Returns the integer, or NaN
+// for input that means nothing as a context size. Clamping to
+// CONTEXT_MIN/CONTEXT_MAX is the caller's job -- parse only, don't decide.
+// The \d+ guard matters: parseInt("0x20") returns 0, so "0x20" must not pass.
+function parseContextSize(text) {
+  var raw = String(text == null ? "" : text).trim().toLowerCase()
+  if (raw === "") return NaN
+  var multiplier = 1
+  if (raw.charAt(raw.length - 1) === "k") {
+    multiplier = 1000
+    raw = raw.slice(0, raw.length - 1)
+  }
+  if (!/^\d+$/.test(raw)) return NaN
+  return parseInt(raw, 10) * multiplier
+}
+
 function canStart(status, actionInProgress) {
   if (actionInProgress !== "") return false
   return status === "stopped" || status === "failed"
@@ -391,6 +409,7 @@ if (typeof module !== "undefined") {
     contextAt: contextAt,
     snapContext: snapContext,
     contextIndex: contextIndex,
+    parseContextSize: parseContextSize,
     canStart: canStart,
     canStop: canStop,
     canRestart: canRestart,

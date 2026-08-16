@@ -392,6 +392,25 @@ test("contextAt clamps and contextIndex snaps to the nearest step", () => {
   }
 })
 
+test("parseContextSize converts k shorthand and rejects garbage", () => {
+  assert.equal(Model.parseContextSize("24k"), 24000)
+  assert.equal(Model.parseContextSize("24K"), 24000)
+  assert.equal(Model.parseContextSize("64k"), 64000)
+  assert.equal(Model.parseContextSize("18000"), 18000)
+  assert.equal(Model.parseContextSize(" 8192 "), 8192)
+  // The regex guard, not parseInt: parseInt("0x20") is 0 and must not pass.
+  assert.ok(Number.isNaN(Model.parseContextSize("0x20")))
+  assert.ok(Number.isNaN(Model.parseContextSize("2.4k")))
+  assert.ok(Number.isNaN(Model.parseContextSize("k")))
+  assert.ok(Number.isNaN(Model.parseContextSize("24 k")))
+  assert.ok(Number.isNaN(Model.parseContextSize("-24k")))
+  assert.ok(Number.isNaN(Model.parseContextSize("24kk")))
+  assert.ok(Number.isNaN(Model.parseContextSize("abc")))
+  assert.ok(Number.isNaN(Model.parseContextSize("")))
+  assert.ok(Number.isNaN(Model.parseContextSize(undefined)))
+  assert.ok(Number.isNaN(Model.parseContextSize(null)))
+})
+
 test("Model.js holds no state between calls", () => {
   const first = Model.tooltipText(RUNNING, 1786726840)
   Model.badgeText(RUNNING)

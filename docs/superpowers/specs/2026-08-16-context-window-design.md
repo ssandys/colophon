@@ -75,18 +75,24 @@ land off a step.
 ### The editable number
 
 Beside the slider sits a compact `TextField` (the `qs.Ui` one, a QQC
-TextField) holding the actual setting — not the snapped step. Click it and it
-becomes a text input restricted by `IntValidator { bottom: 4096; top:
-131072 }`, so typing `18000` is allowed and typing `0` is blocked at the
-keyboard. On `editingFinished` (Enter or focus loss) the text is parsed,
-clamped to the same bounds, and persisted through `setContextSize`; a value
-that fails to parse — an emptied field — reverts to the current setting.
+TextField) holding the actual setting — not the snapped step. Click it, type
+a size, and on `editingFinished` (Enter or focus loss) the text is parsed by
+`Model.parseContextSize`, clamped to the bounds, and persisted through
+`setContextSize`; a value that fails to parse — an emptied field, garbage — 
+reverts to the current setting.
+
+There is deliberately **no `IntValidator`**. A validator blocks keystrokes,
+and it would block the `k` shorthand: `parseContextSize` accepts a plain
+integer (`18000`) or a `k` suffix (`24k` = 24000, case-insensitive), converts
+it, and returns `NaN` for anything else — including `2.4k`, `24kk`, `0x20`
+(which bare `parseInt` would read as `0`), and negative values. The regex
+guard exists precisely so `0x20` cannot reach `parseInt`.
 
 The field re-binds `text` to the setting after every commit, so a slider drag
 or the shell's settings panel keeps it live when it is not being edited.
 Typed values are sent to Ollama exactly; only the slider knob approximates to
 the nearest step, and the spec's cross-language guard still pins the slider's
-steps to the validator range.
+steps to the parse/validator range.
 
 The manifest schema's step is `1` (any whole value in range), matching the
 field; the slider's own steps remain powers of two.
@@ -172,6 +178,8 @@ Testable, all green as of writing (163 Python + 31 JS):
 - `snapContext`/`contextIndex`/`contextAt`: index round-trips, clamping at both
   ends, NaN/null/undefined coercion, and the halfway tie resolving to the lower
   step
+- `parseContextSize`: plain and `k`-shorthand integers, and the whole garbage
+  class (`2.4k`, `0x20`, negatives, empty) returning `NaN`
 - the cross-language guards above
 
 Not testable in this repository, and therefore **unverified until someone
