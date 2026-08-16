@@ -349,6 +349,49 @@ test("optimisticStatusFor stays silent for the boot verbs", () => {
   assert.equal(Model.optimisticStatusFor("disable"), "")
 })
 
+test("context steps are powers of two, ascending, within the bounds", () => {
+  const steps = Model.CONTEXT_STEPS
+  assert.ok(steps.length >= 3, "a slider needs notches")
+  for (const step of steps) {
+    assert.equal(step & (step - 1), 0, `${step} is not a power of two`)
+    assert.ok(step >= Model.CONTEXT_MIN && step <= Model.CONTEXT_MAX, step)
+  }
+  assert.deepEqual(steps, [...steps].sort((a, b) => a - b), "steps must ascend")
+  assert.equal(steps[0], Model.CONTEXT_MIN)
+  assert.equal(steps[steps.length - 1], Model.CONTEXT_MAX)
+})
+
+test("contextAt clamps and contextIndex snaps to the nearest step", () => {
+  assert.equal(Model.contextCount(), Model.CONTEXT_STEPS.length)
+  // Index round-trips through every step.
+  for (let i = 0; i < Model.CONTEXT_STEPS.length; i++) {
+    assert.equal(Model.contextAt(i), Model.CONTEXT_STEPS[i])
+    assert.equal(Model.contextIndex(Model.CONTEXT_STEPS[i]), i)
+  }
+  // Negative and oversized indices clamp to the ends.
+  assert.equal(Model.contextAt(-3), Model.CONTEXT_STEPS[0])
+  assert.equal(Model.contextAt(99), Model.CONTEXT_STEPS[Model.CONTEXT_STEPS.length - 1])
+  // Non-numeric and NaN values fall back to the default.
+  assert.equal(Model.contextAt("x"), Model.CONTEXT_DEFAULT)
+  assert.equal(Model.snapContext(undefined), Model.CONTEXT_DEFAULT)
+  assert.equal(Model.contextIndex(undefined), Model.CONTEXT_DEFAULT_INDEX)
+  // null coerces to 0, which snaps to the first step.
+  assert.equal(Model.contextIndex(null), 0)
+  // Nearest-step snapping, including the halfway tie resolving DOWN.
+  assert.equal(Model.snapContext(4096), 4096)
+  assert.equal(Model.snapContext(8192), 8192)
+  assert.equal(Model.snapContext(12288), 8192)   // tie -> lower step
+  assert.equal(Model.snapContext(12289), 16384)
+  assert.equal(Model.snapContext(300000), Model.CONTEXT_MAX)  // clamped
+  assert.equal(Model.snapContext(2048), Model.CONTEXT_MIN)    // clamped
+  // Whatever is fed in, the slider's value is always a real index.
+  for (const v of [-100, 0, 1, 4096, 12288, 131072, 1e9, "x", null, undefined]) {
+    const index = Model.contextIndex(v)
+    assert.ok(Number.isInteger(index), v)
+    assert.ok(index >= 0 && index < Model.contextCount(), v)
+  }
+})
+
 test("Model.js holds no state between calls", () => {
   const first = Model.tooltipText(RUNNING, 1786726840)
   Model.badgeText(RUNNING)

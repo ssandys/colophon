@@ -232,6 +232,73 @@ class SettingsDefaultTest(unittest.TestCase):
                     self.assertEqual(literal.strip('"'), expected)
 
 
+class ContextWindowTest(unittest.TestCase):
+    """The context slider's step list and bounds cross JS, Python, and JSON.
+
+    The panel slides over the INDEX of CONTEXT_STEPS, the action script
+    validates against CONTEXT_MIN/CONTEXT_MAX, and the manifest's schema
+    constrains what the shell's settings panel will accept. Three authorities
+    for one number: a one-sided edit silently changes the knob without the
+    range, or the range without the knob.
+    """
+
+    def model_steps(self):
+        match = re.search(r"var CONTEXT_STEPS = \[(.*?)\]",
+                          read("Model.js"), re.S)
+        self.assertIsNotNone(match, "CONTEXT_STEPS not found in Model.js")
+        return [int(x) for x in re.findall(r"\d+", match.group(1))]
+
+    def model_bound(self, name):
+        match = re.search(r"var " + name + r" = (\d+)", read("Model.js"))
+        self.assertIsNotNone(match, name + " not found in Model.js")
+        return int(match.group(1))
+
+    def python_bound(self, name):
+        action = read("scripts", "colophon_action.py")
+        match = re.search(r"^" + name + r" = (\d+)$", action, re.M)
+        self.assertIsNotNone(match,
+                             name + " not found in colophon_action.py")
+        value = int(match.group(1))
+        self.assertEqual(value, self.model_bound(name),
+                         name + " in Python must equal the Model.js value")
+        return value
+
+    def schema_bounds(self):
+        schema = next(entry for entry in load_manifest()["barWidget"]["schema"]
+                      if entry["key"] == "contextSize")
+        return schema["min"], schema["max"], schema["defaultValue"]
+
+    def test_the_steps_are_powers_of_two_within_the_bounds(self):
+        steps = self.model_steps()
+        self.assertGreaterEqual(len(steps), 3, "a slider needs notches")
+        for step in steps:
+            with self.subTest(step=step):
+                self.assertEqual(step & (step - 1), 0,
+                                 str(step) + " is not a power of two")
+        self.assertEqual(steps, sorted(steps), "steps must ascend")
+
+    def test_the_steps_line_up_with_the_python_bounds(self):
+        # A list that ends above CONTEXT_MAX would let the slider offer a size
+        # the action script refuses; one that starts above CONTEXT_MIN would
+        # hide sizes the script would accept. Pin both ends.
+        steps = self.model_steps()
+        self.assertEqual(self.model_bound("CONTEXT_MIN"), self.python_bound("CONTEXT_MIN"))
+        self.assertEqual(self.model_bound("CONTEXT_MAX"), self.python_bound("CONTEXT_MAX"))
+        self.assertEqual(steps[0], self.model_bound("CONTEXT_MIN"))
+        self.assertEqual(steps[-1], self.model_bound("CONTEXT_MAX"))
+
+    def test_the_manifest_schema_sits_inside_the_python_bounds(self):
+        # The schema is what the shell's settings panel enforces; it must not
+        # widen beyond what the action script will accept, and its default
+        # must be a value the slider can actually produce.
+        low, high, default = self.schema_bounds()
+        steps = self.model_steps()
+        self.assertGreaterEqual(low, self.python_bound("CONTEXT_MIN"))
+        self.assertLessEqual(high, self.python_bound("CONTEXT_MAX"))
+        self.assertIn(default, steps,
+                      "the default context size is not on the slider")
+
+
 class KindRoutingTest(unittest.TestCase):
     def test_the_embedding_family_list_exists_only_in_python(self):
         # The generate-vs-embed decision is derived once, in the collector, and

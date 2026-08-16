@@ -80,6 +80,22 @@ class PlanTest(unittest.TestCase):
                             "http://127.0.0.1:11434", True)
         self.assertIn('"keep_alive": "30m"', steps[0])
 
+    def test_warm_carries_the_context_window(self):
+        steps = action.plan("warm", "llama3.2:3b", "generate", 5,
+                            "http://127.0.0.1:11434", True, 8192)
+        self.assertIn('"num_ctx": 8192', steps[0])
+
+    def test_warm_without_a_context_size_sends_no_options(self):
+        steps = action.plan("warm", "llama3.2:3b", "generate", 5,
+                            "http://127.0.0.1:11434", True)
+        self.assertNotIn("options", steps[0])
+
+    def test_an_embedding_warm_carries_the_context_window(self):
+        steps = action.plan("warm", "nomic-embed-text:latest", "embed", 5,
+                            "http://127.0.0.1:11434", True, 16384)
+        self.assertIn("/api/embed", steps[0])
+        self.assertIn('"num_ctx": 16384', steps[0])
+
     def test_unload_posts_keep_alive_zero_and_never_starts_anything(self):
         steps = action.plan("unload", "llama3.2:3b", "generate", 5,
                             "http://127.0.0.1:11434", False)
@@ -152,6 +168,12 @@ class DryRunTest(unittest.TestCase):
         lines = result.stdout.strip().splitlines()
         self.assertEqual(len(lines), 3)
 
+    def test_dry_run_prints_the_context_window(self):
+        result = run(["warm", "llama3.2:3b", "--context-size", "16384",
+                      "--dry-run"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('"num_ctx": 16384', result.stdout)
+
     def test_dry_run_never_touches_the_service(self):
         before = subprocess.run(
             ["systemctl", "is-active", "ollama.service"],
@@ -222,6 +244,26 @@ class ArgumentTest(unittest.TestCase):
     def test_an_out_of_range_keep_alive_is_rejected(self):
         result = run(["warm", "x:1", "--keep-alive", "121", "--dry-run"])
         self.assertEqual(result.returncode, 2)
+
+    def test_a_non_integer_context_size_is_rejected(self):
+        result = run(["warm", "x:1", "--context-size", "wide", "--dry-run"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--context-size must be an integer", result.stderr)
+
+    def test_an_out_of_range_context_size_is_rejected(self):
+        for bad in ("0", "2048", "131073", "99999999", "-8192"):
+            with self.subTest(context=bad):
+                result = run(["warm", "x:1", "--context-size", bad,
+                              "--dry-run"])
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("between", result.stderr)
+
+    def test_the_context_size_boundaries_are_accepted(self):
+        for value in ("4096", "131072"):
+            with self.subTest(context=value):
+                result = run(["warm", "x:1", "--context-size", value,
+                              "--dry-run"])
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_the_range_boundaries_are_accepted(self):
         for value in ("1", "120"):
@@ -300,6 +342,26 @@ class BodyTest(unittest.TestCase):
         body = action.load_body("x:1", "embed", 0)
         self.assertEqual(body,
                          {"model": "x:1", "keep_alive": 0, "input": ""})
+
+    def test_a_context_size_becomes_num_ctx(self):
+        body = action.load_body("x:1", "generate", "5m", 8192)
+        self.assertEqual(
+            body,
+            {"model": "x:1", "keep_alive": "5m",
+             "options": {"num_ctx": 8192}})
+
+    def test_embed_bodies_carry_both_input_and_context(self):
+        body = action.load_body("x:1", "embed", "5m", 16384)
+        self.assertEqual(
+            body,
+            {"model": "x:1", "keep_alive": "5m", "input": "",
+             "options": {"num_ctx": 16384}})
+
+    def test_zero_context_is_treated_as_absent(self):
+        # Service.qml only passes --context-size on warm, but a falsy value
+        # must never sneak an options block into the body.
+        body = action.load_body("x:1", "generate", "5m", 0)
+        self.assertEqual(body, {"model": "x:1", "keep_alive": "5m"})
 
     def test_endpoint_routing(self):
         self.assertEqual(action.endpoint_for("embed"), "/api/embed")

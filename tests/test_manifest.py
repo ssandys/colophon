@@ -37,6 +37,7 @@ class ManifestTest(unittest.TestCase):
     def test_every_default_key_is_expected(self):
         expected = [
             "apiBase",
+            "contextSize",
             "keepAliveMinutes",
             "notifyServiceDied",
             "pollIntervalIdleSec",
