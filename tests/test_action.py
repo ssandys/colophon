@@ -1,8 +1,13 @@
+import contextlib
+import io
 import json
 import os
 import subprocess
 import sys
 import unittest
+import urllib.error
+from unittest.mock import call
+from unittest.mock import patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
@@ -123,6 +128,17 @@ class PlanTest(unittest.TestCase):
                             "http://10.0.0.9:1234/", True)
         self.assertIn("http://10.0.0.9:1234/api/generate", steps[0])
 
+    def test_apply_context_lists_then_recreates_every_model(self):
+        # Two I/O-free lines: discover the installed set, then re-stamp every
+        # one with the default num_ctx. apply-context never starts the service,
+        # so plan() must not add a systemctl start the way `warm` does.
+        steps = action.plan("apply-context", "", "generate", 5,
+                            "http://127.0.0.1:11434", False, 24000)
+        self.assertEqual(len(steps), 2)
+        self.assertEqual(steps[0], "GET http://127.0.0.1:11434/api/tags")
+        self.assertIn("num_ctx 24000", steps[1])
+        self.assertNotIn("systemctl", "\n".join(steps))
+
 
 class TimeoutConstantsTest(unittest.TestCase):
     def test_the_load_post_timeout_is_not_the_api_wait_deadline(self):
@@ -174,12 +190,21 @@ class DryRunTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"num_ctx": 16384', result.stdout)
 
+    def test_apply_context_dry_run_prints_the_sweep(self):
+        result = run(["apply-context", "24000", "--dry-run"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stdout.strip().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("/api/tags", lines[0])
+        self.assertIn("num_ctx 24000", lines[1])
+
     def test_dry_run_never_touches_the_service(self):
         before = subprocess.run(
             ["systemctl", "is-active", "ollama.service"],
             capture_output=True, text=True).stdout.strip()
         for args in (["start"], ["stop"], ["restart"],
-                     ["warm", "llama3.2:3b"], ["unload", "llama3.2:3b"]):
+                     ["warm", "llama3.2:3b"], ["unload", "llama3.2:3b"],
+                     ["apply-context", "24000"]):
             run(args + ["--dry-run"])
         after = subprocess.run(
             ["systemctl", "is-active", "ollama.service"],
@@ -293,6 +318,32 @@ class ArgumentTest(unittest.TestCase):
                 result = run(["warm", "x:1", "--api-base", good, "--dry-run"])
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_apply_context_without_a_size_exits_two(self):
+        result = run(["apply-context", "--dry-run"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("needs a context size", result.stderr)
+
+    def test_apply_context_refuses_a_duplicate_size_source(self):
+        # The size is positional so Service.qml can freeze the committed value;
+        # a --context-size alongside it is ambiguous and must be refused rather
+        # than silently preferred.
+        result = run(["apply-context", "24000", "--context-size", "8192",
+                      "--dry-run"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not --context-size", result.stderr)
+
+    def test_apply_context_out_of_range_exits_two(self):
+        for bad in ("0", "2048", "131073", "24000.5", "twenty-four"):
+            with self.subTest(size=bad):
+                result = run(["apply-context", bad, "--dry-run"])
+                self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_apply_context_in_range_is_accepted(self):
+        for value in ("4096", "18000", "24000", "131072"):
+            with self.subTest(size=value):
+                result = run(["apply-context", value, "--dry-run"])
+                self.assertEqual(result.returncode, 0, result.stderr)
+
 
 class PostJsonTest(unittest.TestCase):
     def test_a_truncated_error_body_does_not_raise(self):
@@ -373,3 +424,124 @@ class BodyTest(unittest.TestCase):
     def test_endpoint_routing(self):
         self.assertEqual(action.endpoint_for("embed"), "/api/embed")
         self.assertEqual(action.endpoint_for("generate"), "/api/generate")
+
+
+class FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def read(self):
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class InstalledModelsTest(unittest.TestCase):
+    def test_returns_every_model_name_from_tags(self):
+        payload = json.dumps({"models": [
+            {"name": "qwen3.6:27b"}, {"name": "nomic-embed-text:latest"},
+            {"digest": "sha256:…"}]}).encode()
+        with patch("urllib.request.urlopen",
+                   return_value=FakeResponse(payload)) as opened:
+            names = action.installed_models("http://127.0.0.1:11434")
+        self.assertEqual(names, ["qwen3.6:27b", "nomic-embed-text:latest"])
+        opened.assert_called_once()
+        self.assertIn("/api/tags", opened.call_args.args[0])
+
+    def test_a_refused_server_returns_none(self):
+        with patch("urllib.request.urlopen",
+                   side_effect=urllib.error.URLError("connection refused")):
+            with contextlib.redirect_stderr(io.StringIO()):
+                names = action.installed_models("http://127.0.0.1:11434")
+        self.assertIsNone(names)
+
+    def test_a_truncated_body_returns_none(self):
+        # A server dying mid-body raises http.client.IncompleteRead, which is
+        # none of URLError/OSError/ValueError -- trap #25, closed everywhere.
+        import http.client
+        with patch("urllib.request.urlopen",
+                   side_effect=http.client.IncompleteRead(b"")):
+            with contextlib.redirect_stderr(io.StringIO()):
+                names = action.installed_models("http://127.0.0.1:11434")
+        self.assertIsNone(names)
+
+    def test_a_malformed_response_returns_none(self):
+        with patch("urllib.request.urlopen",
+                   return_value=FakeResponse(b"not json")):
+            with contextlib.redirect_stderr(io.StringIO()):
+                names = action.installed_models("http://127.0.0.1:11434")
+        self.assertIsNone(names)
+
+
+class CreateWithContextTest(unittest.TestCase):
+    def test_runs_ollama_create_with_a_self_referencing_modelfile(self):
+        completed = subprocess.CompletedProcess(
+            ["ollama"], 0, stdout="", stderr="")
+        with patch("subprocess.run", return_value=completed) as ran:
+            code = action.create_with_context("qwen3.5:9b", 24000)
+        self.assertEqual(code, 0)
+        command = ran.call_args.args[0]
+        self.assertEqual(command[:4], ["ollama", "create", "qwen3.5:9b", "-f"])
+        modelfile = command[4]
+        self.assertIn("/tmp/colophon-", modelfile)
+        self.assertTrue(modelfile.endswith(".Modelfile"))
+        self.assertFalse(os.path.exists(modelfile),
+                         "the temp Modelfile must be removed")
+
+    def test_a_failed_create_is_reported(self):
+        completed = subprocess.CompletedProcess(
+            ["ollama"], 1, stdout="", stderr="boom")
+        with patch("subprocess.run", return_value=completed) as ran:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                code = action.create_with_context("qwen3.5:9b", 24000)
+        self.assertEqual(code, 1)
+        self.assertIn("failed", err.getvalue())
+        self.assertFalse(os.path.exists(ran.call_args.args[0][4]))
+
+
+class ApplyDefaultContextTest(unittest.TestCase):
+    def test_applies_to_every_installed_model(self):
+        with patch("colophon_action.installed_models",
+                   return_value=["a:1", "b:2"]) as models:
+            with patch("colophon_action.create_with_context",
+                       return_value=0) as create:
+                code = action.apply_default_context(
+                    "http://127.0.0.1:11434", 24000)
+        self.assertEqual(code, 0)
+        models.assert_called_once()
+        self.assertEqual(create.call_args_list,
+                         [call("a:1", 24000), call("b:2", 24000)])
+
+    def test_a_failed_create_stops_the_sweep(self):
+        with patch("colophon_action.installed_models",
+                   return_value=["a:1", "b:2"]):
+            with patch("colophon_action.create_with_context",
+                       side_effect=[0, 1]) as create:
+                code = action.apply_default_context(
+                    "http://127.0.0.1:11434", 8192)
+        self.assertEqual(code, 1)
+        self.assertEqual(create.call_count, 2)
+
+    def test_an_unreachable_server_exits_one_without_starting(self):
+        with patch("colophon_action.installed_models",
+                   return_value=None) as models:
+            code = action.apply_default_context(
+                "http://127.0.0.1:11434", 8192)
+        self.assertEqual(code, 1)
+        models.assert_called_once()
+
+    def test_a_suspicious_model_name_is_skipped(self):
+        with patch("colophon_action.installed_models",
+                   return_value=["good:1", "evil;rm -rf /", "ok:2"]):
+            with patch("colophon_action.create_with_context",
+                       return_value=0) as create:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    code = action.apply_default_context(
+                        "http://127.0.0.1:11434", 8192)
+        self.assertEqual(code, 0)
+        names = [c.args[0] for c in create.call_args_list]
+        self.assertEqual(names, ["good:1", "ok:2"])

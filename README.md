@@ -106,8 +106,13 @@ models, 19.7 GB` while not.
   two from 4096 to 131072. The number beside it is editable: click it to type
   a value. A plain number, like `18000`, is sent exactly. The `k` shorthand
   is always a binary thousand — `16k` is 16384, `24k` is 24576, `18k` is
-  18432. Either way it applies to the next warm; a model already loaded keeps
-  its context until it is unloaded.
+  18432. **Committing a size** (releasing the slider, or finishing an edit in
+  the field) also re-stamps every installed model's default `num_ctx` to it —
+  a fast, metadata-only `ollama create` per model — so clients that never send
+  the option themselves, like opencode, still load at that context. A repeat
+  of the last successfully applied size is skipped. A model already loaded
+  keeps its context until it is unloaded; changing the slider does not touch
+  it.
 - **The switch on the boot line** decides whether `ollama.service` starts at
   boot. It moves the instant you click it, then asks you to authenticate — see
   Boot start below for what it does and does not change.
@@ -158,7 +163,7 @@ directly in `shell.json`. Defaults and ranges below come straight from
 | `pollIntervalRunningSec` | integer | 10 | 5–120 | Poll cadence while the panel is closed and the server is up. Also used during the brief `starting`/`stopping` transients — they resolve on their own, and a fourth interval key isn't worth having just for them. |
 | `pollIntervalIdleSec` | integer | 30 | 5–300 | Poll cadence while the panel is closed and the server is down (`stopped`, `failed`, or `missing`). |
 | `keepAliveMinutes` | integer | 5 | 1–120 | How long a model stays warm after loading, sent as `keep_alive` on every warm. |
-| `contextSize` | integer | 8192 | 4096–131072 | The context window for a warmed model, sent as `options.num_ctx` on every warm. The slider snaps to powers of two; the number beside it accepts any whole value in range, and `k` shorthand is a binary thousand (`16k` = 16384, `24k` = 24576). |
+| `contextSize` | integer | 8192 | 4096–131072 | The context window for a warmed model, sent as `options.num_ctx` on every warm. The slider snaps to powers of two; the number beside it accepts any whole value in range, and `k` shorthand is a binary thousand (`16k` = 16384, `24k` = 24576). Committing it also re-stamps every installed model's default `num_ctx` (see the context slider above). |
 | `apiBase` | string | `http://127.0.0.1:11434` | — | Where Colophon probes for the Ollama API. |
 | `showInstalledModels` | boolean | true | — | Show the installed-model list in the panel. |
 | `notifyServiceDied` | boolean | true | — | Desktop notification when the service dies unexpectedly. |

@@ -39,6 +39,17 @@ Panel {
       root.bar.shell.updateEntryInline(root.moduleName, root.settings)
   }
 
+  // The commit action, on slider release or field edit-finish: persist the
+  // size and ask the service to re-stamp every installed model's default
+  // num_ctx with it. That rewrite is what lets clients that never send
+  // num_ctx -- opencode, which only speaks Ollama's /v1 endpoint -- load at
+  // the chosen context. runAction deduplicates a repeat of the last size it
+  // successfully applied, so a no-move drag does not churn the models again.
+  function commitContextSize(value) {
+    root.setContextSize(value)
+    service.runAction("apply-context", String(value), "")
+  }
+
   readonly property var snap: service.snapshot
   readonly property string status: service.effectiveStatus
 
@@ -362,8 +373,10 @@ Panel {
         // ── Context window ──
         // How much context a warmed model gets (Ollama's num_ctx, in tokens).
         // The slider moves over the INDEX of Model.js's CONTEXT_STEPS, so it
-        // can only land on a power of two. It configures the next warm; a
-        // model already loaded keeps its context until it is unloaded.
+        // can only land on a power of two. Dragging persists the size live for
+        // the next warm; RELEASING (or finishing an edit in the field) commits
+        // it, which also re-stamps every installed model's default num_ctx so
+        // clients that never send the option load at this size too.
         RowLayout {
           Layout.fillWidth: true
           Layout.leftMargin: Style.space(14)
@@ -389,6 +402,9 @@ Panel {
             value: Model.contextIndex(service.contextSize)
             onMoved: function (index) {
               root.setContextSize(Model.contextAt(index))
+            }
+            onReleased: function (index) {
+              root.commitContextSize(Model.contextAt(index))
             }
           }
 
@@ -427,7 +443,7 @@ Panel {
                 return
               }
               value = Math.max(4096, Math.min(131072, value))
-              root.setContextSize(value)
+              root.commitContextSize(value)
               syncToSetting()
             }
           }

@@ -34,6 +34,14 @@ Item {
   property bool actionExited: false
   property bool pendingRefresh: false
 
+  // The last context size successfully applied to the installed models, or -1
+  // before the first apply since the shell started. Committing the same size
+  // twice must not re-run a multi-model `ollama create` sweep, so the panel
+  // passes this through runAction, which skips a repeat. It is set only on a
+  // SUCCESSFUL apply -- a failed one leaves it stale so the next commit
+  // retries.
+  property int lastAppliedContextSize: -1
+
   // dropbox/Service.qml's `_desired` pattern: the UI reacts the instant you
   // click rather than one poll later. Empty means "just follow reality".
   property string optimisticStatus: ""
@@ -156,6 +164,12 @@ Item {
 
   function runAction(verb, target, kind) {
     if (root.actionInProgress !== "") return
+    // Applying the same size twice is a no-op that would still churn through
+    // every installed model; the panel commits the same value on a no-move
+    // drag, so skip it. target is a String here -- the panel freezes the size
+    // it committed so a mid-rebuild settings change cannot corrupt the marker.
+    if (verb === "apply-context" &&
+        target === String(root.lastAppliedContextSize)) return
     root.actionInProgress = target ? (verb + ":" + target) : verb
     root.actionError = ""
     root.actionExited = false
@@ -320,6 +334,14 @@ Item {
       // the panel -- the exact Critical defect galley shipped and fixed.
       if (!root.actionExited && root.actionInProgress !== "")
         root.actionError = "Could not run the action helper"
+      // Only a real apply records the marker: a spawn failure (actionExited
+      // false) or a non-zero exit (actionError set) must leave it stale so the
+      // same size is retried instead of silently skipped.
+      if (root.actionExited && root.actionError === "" &&
+          root.actionInProgress.indexOf("apply-context:") === 0) {
+        root.lastAppliedContextSize = parseInt(
+          root.actionInProgress.substring("apply-context:".length), 10)
+      }
       if (root.actionError !== "") {
         root.optimisticStatus = ""
         root.optimisticBootState = ""

@@ -5,6 +5,7 @@
   colophon_action.py warm   <model> [--kind K] [--keep-alive MIN]
                                    [--context-size N]               [--dry-run]
   colophon_action.py unload <model> [--kind K]                    [--dry-run]
+  colophon_action.py apply-context <size>                          [--dry-run]
 
 Common flags: --api-base URL.
 
@@ -20,6 +21,7 @@ logic that fails silently on a one-sided edit.
 
 import http.client
 import json
+import os
 import re
 import subprocess
 import sys
@@ -29,6 +31,10 @@ import urllib.request
 
 UNIT_NAME = "ollama.service"
 SYSTEMCTL = "/usr/bin/systemctl"
+# `ollama create` writes a model definition through the running server. Unlike
+# systemctl there is no single fixed path across installs, so the plain name it
+# is -- it talks to the same default server the widget controls by default.
+OLLAMA = "ollama"
 
 LIFECYCLE_VERBS = ("start", "stop", "restart")
 BOOT_VERBS = ("enable", "disable")
@@ -37,6 +43,7 @@ BOOT_VERBS = ("enable", "disable")
 # category cannot ship without the --no-ask-password assertion covering it.
 SYSTEMCTL_VERBS = LIFECYCLE_VERBS + BOOT_VERBS
 MODEL_VERBS = ("warm", "unload")
+CONTEXT_VERBS = ("apply-context",)
 KINDS = ("generate", "embed")
 
 DEFAULT_API_BASE = "http://127.0.0.1:11434"
@@ -55,6 +62,12 @@ CONTEXT_MAX = 131072
 # the user was about to approve.
 SYSTEMCTL_TIMEOUT_SEC = 120
 API_TIMEOUT_SEC = 5
+
+# How long one `ollama create` may take. Re-stamping a definition with a new
+# PARAMETER num_ctx is metadata-only -- no weight copy, no download -- so it is
+# sub-second per model, but apply-context runs one create per installed model
+# and must not hold the panel hostage to a slow server.
+CREATE_TIMEOUT_SEC = 120
 
 # How long to wait for the port to bind after `systemctl start` -- genuinely
 # fast, since this is only polling a TCP connect/HTTP GET in a tight loop.
@@ -109,6 +122,11 @@ def plan(verb, target, kind, keep_alive_min, api_base, running,
         return [" ".join(systemctl_command(verb))]
 
     base = str(api_base).rstrip("/")
+    if verb in CONTEXT_VERBS:
+        return ["GET " + base + "/api/tags",
+                "CREATE every installed model with num_ctx "
+                + str(context_size)
+                + " (ollama create <model> -f <temp Modelfile>)"]
     keep_alive = 0 if verb == "unload" else str(int(keep_alive_min)) + "m"
     steps = []
     if verb == "warm" and not running:
@@ -194,9 +212,94 @@ def run_systemctl(verb):
     return 0
 
 
+def installed_models(api_base):
+    """Every installed model's name, or None when the API will not say."""
+    url = str(api_base).rstrip("/") + "/api/tags"
+    try:
+        with urllib.request.urlopen(url, timeout=API_TIMEOUT_SEC) as response:
+            payload = json.loads(response.read().decode("utf-8", "replace"))
+    except (urllib.error.URLError, http.client.HTTPException, OSError,
+            ValueError, TimeoutError) as error:
+        sys.stderr.write("colophon: could not list installed models on "
+                         + url + ": " + str(error) + "\n")
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("models"),
+                                                        list):
+        sys.stderr.write("colophon: unexpected response from " + url + "\n")
+        return None
+    return [entry.get("name") for entry in payload["models"]
+            if isinstance(entry, dict) and entry.get("name")]
+
+
+def create_with_context(model, context_size):
+    """Re-create `model` with a default num_ctx, in place, without touching a
+    loaded instance. Naming the model itself as the FROM base is how Ollama
+    re-stamps a definition; the create is metadata-only, so the rewrite is fast
+    and the existing blobs stay shared. The temp Modelfile is removed in every
+    path.
+    """
+    safe = re.sub(r"[^A-Za-z0-9._:-]", "_", model)
+    path = "/tmp/colophon-" + str(os.getpid()) + "-" + safe + ".Modelfile"
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("FROM " + model + "\n"
+                         + "PARAMETER num_ctx " + str(context_size) + "\n")
+    except OSError as error:
+        sys.stderr.write("colophon: could not write " + path + ": "
+                         + str(error) + "\n")
+        return 1
+    try:
+        completed = subprocess.run(
+            [OLLAMA, "create", model, "-f", path],
+            capture_output=True, text=True, timeout=CREATE_TIMEOUT_SEC)
+    except subprocess.TimeoutExpired:
+        sys.stderr.write("colophon: ollama create timed out for "
+                         + model + "\n")
+        return 1
+    except OSError as error:
+        sys.stderr.write("colophon: could not run ollama: " + str(error)
+                         + "\n")
+        return 1
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    if completed.returncode != 0:
+        detail = (completed.stderr.strip() or completed.stdout.strip()
+                  or ("exit " + str(completed.returncode)))
+        sys.stderr.write("colophon: ollama create failed for " + model + ": "
+                         + detail + "\n")
+        return 1
+    return 0
+
+
+def apply_default_context(api_base, context_size):
+    """Give every installed model a default num_ctx, so a client that never
+    sends the option -- opencode, which only speaks Ollama's /v1 OpenAI
+    endpoint -- still loads at the panel's chosen context. Deliberately does
+    NOT start the service: a down server means there is nothing to rewrite,
+    and auto-starting on a settings commit would be a surprise.
+    """
+    models = installed_models(api_base)
+    if models is None:
+        return 1
+    for model in models:
+        if not MODEL_RE.match(model):
+            sys.stderr.write("colophon: skipping suspicious model name "
+                             + model + "\n")
+            continue
+        if create_with_context(model, context_size) != 0:
+            return 1
+    return 0
+
+
 def execute(verb, target, kind, keep_alive_min, api_base, context_size=None):
     if verb in SYSTEMCTL_VERBS:
         return run_systemctl(verb)
+
+    if verb in CONTEXT_VERBS:
+        return apply_default_context(api_base, context_size)
 
     if verb == "warm" and not api_reachable(api_base):
         code = run_systemctl("start")
@@ -246,7 +349,7 @@ def main(argv):
                 "colophon_action: unknown argument '" + arg + "'\n")
             return 2
 
-    if verb not in SYSTEMCTL_VERBS + MODEL_VERBS:
+    if verb not in SYSTEMCTL_VERBS + MODEL_VERBS + CONTEXT_VERBS:
         sys.stderr.write("colophon_action: unknown verb '" + verb + "'\n")
         return 2
     if kind not in KINDS:
@@ -282,6 +385,33 @@ def main(argv):
                 "colophon_action: --context-size must be between "
                 + str(CONTEXT_MIN) + " and " + str(CONTEXT_MAX) + "\n")
             return 2
+    # apply-context takes the size positionally (the panel freezes the value it
+    # committed) so a mid-rebuild settings change cannot corrupt the marker
+    # Service.qml uses to deduplicate. Two sources would be ambiguous, and a
+    # missing one is a caller bug -- both exit 2, like the other arg errors.
+    if verb in CONTEXT_VERBS:
+        if context_raw is not None:
+            sys.stderr.write(
+                "colophon_action: apply-context takes the size as its "
+                "argument, not --context-size\n")
+            return 2
+        if not target:
+            sys.stderr.write(
+                "colophon_action: " + verb + " needs a context size\n")
+            return 2
+        try:
+            context_size = int(target)
+        except (TypeError, ValueError):
+            sys.stderr.write(
+                "colophon_action: " + verb
+                + " needs a whole-number context size\n")
+            return 2
+        if context_size < CONTEXT_MIN or context_size > CONTEXT_MAX:
+            sys.stderr.write(
+                "colophon_action: " + verb + " needs a context size between "
+                + str(CONTEXT_MIN) + " and " + str(CONTEXT_MAX) + "\n")
+            return 2
+        target = ""
     # A malformed base would otherwise fail api_reachable() like an ordinary
     # refusal, and warm would go on to start the LOCAL unit because of it.
     if not str(api_base).startswith(("http://", "https://")):

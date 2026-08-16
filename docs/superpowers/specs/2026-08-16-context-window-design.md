@@ -169,13 +169,61 @@ otherwise unchanged, so both `/api/generate` and `/api/embed` warms carry the
 option, and an unload never does. The panel only ever sends a step, but the
 flag stays honest for any future caller, including the shell's settings panel.
 
+## Committing also applies the default to every installed model
+
+`--context-size` only helps callers that send the option. opencode — the
+reason this feature exists — never does: it talks to Ollama only through the
+OpenAI-compatible `/v1/chat/completions` endpoint, and Ollama 0.17.5 drops
+`num_ctx` from that endpoint's request entirely (the forwarding landed in
+ollama/ollama#16825, unmerged as of writing). So for opencode, the only lever
+is the model's own default, set at creation via a Modelfile `PARAMETER
+num_ctx`.
+
+The commit action closes that gap. Releasing the slider or finishing a number
+field edit runs a new `apply-context <size>` verb:
+
+- the panel freezes the committed size, persists it as `contextSize`, and calls
+  `service.runAction("apply-context", String(size), "")`
+- `colophon_action.py apply-context <size>` lists installed models via GET
+  `<api-base>/api/tags`, then for each runs `ollama create <model> -f <temp
+  Modelfile>` whose contents are `FROM <model>` plus `PARAMETER num_ctx
+  <size>`. Naming the model itself as FROM re-stamps a definition in place,
+  metadata-only — sub-second per model, no weight copy, blobs stay shared —
+  and it is what lets a client that sends no `num_ctx` load at the panel's
+  chosen size. Verified live against Ollama 0.17.5.
+- the size travels positionally, never via `--context-size`: the frozen value
+  doubles as the dedup key, so a settings change racing the rebuild cannot
+  corrupt the marker `Service.qml` compares. Passing both is refused (exit 2),
+  as is a missing or out-of-range size.
+- `Service.qml` skips the action when `target` equals the last size that
+  *succeeded* (`lastAppliedContextSize`, set in `actionProc.onRunningChanged`
+  only when the exit was clean) — a no-move slider release is the main repeat
+  case, and re-running an 11-model sweep for nothing is not worth it. A failed
+  apply leaves the marker stale so the next commit retries.
+- `apply-context` deliberately never starts the service. A down server means
+  there is nothing to rewrite, and auto-starting on a settings commit would be
+  a surprise. The panel shows the failure in its error strip.
+- the applied default does not touch a loaded model; it governs the next load.
+  This is the same load-time semantics as `num_ctx` itself.
+
+### The commit trigger is release, not every drag tick
+
+`PanelSlider` emits `moved` on every drag step and `released` on release (and
+`onWheel` fires both). `onMoved` keeps persisting the size live — that is how
+the number field tracks a drag — but only `onReleased` (and the field's
+`onEditingFinished`) commits the sweep, so one drag is one apply.
+
 ## Testing
 
 No new manual check is needed against the live service, and none is claimed.
 Everything write-shaped here goes through `--dry-run`, per the standing safety
-rule.
+rule. (The apply-context sweep was, however, exercised once against the live
+machine during this review, as a deliberate logged manual check: all 12
+installed models re-stamped to 24000 in ~0.7s, and a bare
+`/v1/chat/completions` request — no `num_ctx` in the body, the exact opencode
+path — loaded `qwen3.5:9b` at CONTEXT 24000.)
 
-Testable, all green as of writing (163 Python + 31 JS):
+Testable, all green as of writing (180 Python + 33 JS):
 
 - `--context-size` parsing: non-integer, out of range (0, 2048, 131073,
   99999999, negative), and both boundary values accepted
@@ -184,6 +232,18 @@ Testable, all green as of writing (163 Python + 31 JS):
 - plan/dry-run output carries `"num_ctx": N` for generate and embed; no
   `options` block when the flag is absent; `load_body` treats a falsy 0 as
   absent
+- `apply-context`: plan is exactly two lines (list `/api/tags`, re-create
+  every model with `num_ctx N`); dry-run performs no I/O; missing size, an
+  out-of-range size, and a duplicated `--context-size` all exit 2; in-range
+  sizes exit 0
+- `installed_models` returns every named entry and refuses a refused, truncated,
+  or malformed response with None (trap #25's `IncompleteRead` included)
+- `create_with_context` builds the self-referencing Modelfile, runs
+  `ollama create <model> -f <temp>`, removes the temp file in every path, and
+  reports a non-zero exit
+- `apply_default_context` visits every installed model, stops on the first
+  failure, exits 1 on an unreachable server without starting it, and skips a
+  name `MODEL_RE` refuses
 - `snapContext`/`contextIndex`/`contextAt`: index round-trips, clamping at both
   ends, NaN/null/undefined coercion, and the halfway tie resolving to the lower
   step
@@ -200,10 +260,14 @@ walks it against the live shell**:
    (`qmllint` cannot resolve `qs.Ui`, so nothing in the suite can reach it)
 2. a warm posts `num_ctx` and the model loads — which would be confirmed, if
    ever, through the existing fixture-based collector and a manual warm
+3. releasing the slider runs `apply-context` with the right size, and the
+   dedup skips a repeat — QML wiring, only reachable by hand
 
 Both are cheap to check on the deployed dev build and should be recorded here
 with the same distinction between reported and inferred that the boot-toggle
-spec's verification section uses.
+spec's verification section uses. (Item 2 was effectively retired on 2026-08-16
+when the apply-context manual check above confirmed the `/v1` path; items 1 and
+3 remain open for the interactive slider check.)
 
 ## Known limitations
 
@@ -218,3 +282,13 @@ spec's verification section uses.
 - **`num_ctx` does not bound memory.** Token count, KV-cache size, and model
   size are different things; the README says so rather than letting the panel
   imply a relationship it does not have.
+- **The applied default lives in each model's definition, not in Colophon.**
+  A re-pulled model starts at its own default (typically 2048 or 4096) until
+  the next commit. Nothing in Colophon keeps the sweep state beyond the
+  in-session dedup marker, so a pull followed by a commit is the recovery —
+  and the commit of the current size is a single slider release away.
+- **`ollama create` targets the server the CLI talks to.** apply-context runs
+  the `ollama` binary on PATH, which speaks to the default local server; a
+  custom `apiBase` that differs from that is enumerated but not rewritten.
+  Colophon's own warm path has no such constraint, since it POSTs to
+  `apiBase` directly.
