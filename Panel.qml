@@ -9,9 +9,11 @@ import "Model.js" as Model
 
 Panel {
   id: root
-  // bin/install rewrites these two, and only these two, on the way to the dev
-  // install. Do not move them into Service.qml without updating that script
-  // and its verification grep.
+  // bin/dev rewrites the identity in the deployed copy only; the source tree
+  // stays canonical. It derives its targets rather than naming them -- every
+  // deployed file that is text -- so moving these into another file no longer
+  // strands them. That breadth was learned the hard way twice: see AGENTS.md's
+  // devkit section and issue #5.
   moduleName: "ssandys.colophon"
   ipcTarget: "ssandys.colophon"
 
@@ -71,7 +73,19 @@ Panel {
     }
   }
 
-  WidgetButton {
+  // BarIconButton, not WidgetButton: WidgetButton is for text labels, and it
+  // centres the glyph's *advance box* via anchors.centerIn. The bar font is
+  // monospace with a 7.80px advance cell, but every Nerd Font icon overflows
+  // that cell to the right only -- U+EE86 has 12.00px of ink starting at the
+  // pen origin -- so the ink landed about (12.00 - 7.80) / 2 = 2.10 logical px
+  // right of the slot centre, while the open-panel mark sat correctly centred
+  // on the slot. The mark was never wrong; the glyph was.
+  //
+  // BarIconButton wraps Ui/OpticalGlyph.qml, which corrects horizontal
+  // position by the delta between advance centre and painted-ink centre. Every
+  // other icon-only bar widget already uses it. It extends WidgetButton, so
+  // bar, text, foreground, tooltipText and onPressed all carry over unchanged.
+  BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
@@ -86,8 +100,10 @@ Panel {
       // neighbouring widget for legibility except this one.
       return root.barForeground
     }
-    fixedWidth: root.bar && root.bar.vertical ? -1 : Style.space(27)
-    fixedHeight: root.bar && root.bar.vertical ? Style.space(26) : -1
+    // No fixedWidth/fixedHeight here: BarIconButton sets both from
+    // Style.bar.iconSlot, whose default is the same 27 this used to hardcode --
+    // but the token honours a theme's icon-slot / icon-canvas / icon-font
+    // overrides, which a literal silently ignored.
     tooltipText: Model.tooltipText(root.snap, service.nowSec)
     onPressed: function (which) {
       if (which === Qt.MiddleButton) {
@@ -110,7 +126,10 @@ Panel {
       color: Color.accent
       borderSpec: Border.flat(Color.background, 1)
       anchors.horizontalCenter: parent.horizontalCenter
-      anchors.horizontalCenterOffset: button.labelWidth / 2
+      // glyphPaintedWidth, not labelWidth: BarIconButton sets labelVisible to
+      // false, so labelWidth is 0 there and the badge would collapse onto the
+      // glyph's own centre. This is load-bearing, not cosmetic.
+      anchors.horizontalCenterOffset: button.glyphPaintedWidth / 2
       anchors.verticalCenter: parent.verticalCenter
       anchors.verticalCenterOffset: -button.fontSize * 0.5
 
@@ -698,7 +717,7 @@ Panel {
                   onClicked: service.runAction("warm", modelData.name,
                                                modelData.kind)
 
-                  // Same idiom as the bar-glyph badge in the WidgetButton
+                  // Same idiom as the bar-glyph badge in the BarIconButton
                   // above: plain Text children painted over the clickable
                   // surface. No MouseArea here, so click-to-load, hover, and
                   // the tooltip all keep working straight through. Anchored
