@@ -32,12 +32,21 @@ Panel {
   readonly property var snap: service.snapshot
   readonly property string status: service.effectiveStatus
 
-  // True while a parameter TextField holds focus. PanelKeyCatcher binds
-  // `blocked` to this so j/k/h/l, Enter and Escape reach the focused field
+  // Count of TextFields with active focus, not a bool: the parameter editor
+  // instantiates four fields (one per PARAM_SPECS entry) and each one's
+  // onActiveFocusChanged fires independently on both edges. A bool set by
+  // whichever fires last is order-dependent by construction -- Tab from
+  // field 1 to field 2 fires both handlers, and if the loser's false-write
+  // lands after the gainer's true-write, the flag reads false while a field
+  // still holds focus. A counter that increments on focus gained and
+  // decrements on focus lost stays nonzero across the hand-off regardless
+  // of which of the two events lands last (it reads 2 transiently, then
+  // settles at 1, never touching 0). PanelKeyCatcher binds `blocked` to
+  // this being nonzero so j/k/h/l, Enter and Escape reach the focused field
   // instead of the panel's own key handling -- see the header comment on
   // PanelKeyCatcher and the three first-party panels (network, clock,
   // weather) that already do this for their own inline editors.
-  property bool paramFieldFocused: false
+  property int paramFieldsFocused: 0
 
   // Which installed model has its editor expanded, by name. One at a time:
   // the list is height-capped and clips, so two open editors would mean
@@ -50,6 +59,20 @@ Panel {
       if (list[i].name === root.expandedModel) return list[i]
     return null
   }
+
+  // Guards against paramFieldsFocused drifting upward: collapsing the old
+  // row (choosing a different model, or none) tears down its TextFields
+  // without necessarily running their onActiveFocusChanged(false) first, so
+  // resetting here is what keeps the count from sticking above zero and
+  // leaving PanelKeyCatcher permanently blocked.
+  //
+  // One path this does not catch: the server stopping mid-edit hides the
+  // editor (its `visible` also gates on root.status) without expandedModel
+  // itself changing, so the count can still drift on that path. Left
+  // deliberately unhandled -- that path re-gates every other control in
+  // this panel too, and the symptom (blocked stuck true) is diagnosable and
+  // clears the moment the row is collapsed or re-expanded.
+  onExpandedModelChanged: root.paramFieldsFocused = 0
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -159,7 +182,7 @@ Panel {
       // input -- otherwise lowercase j/k/h/l vanish into cursor movement,
       // Enter never reaches onEditingFinished, and Escape closes the whole
       // panel instead of just reverting the field.
-      blocked: root.paramFieldFocused
+      blocked: root.paramFieldsFocused > 0
       onCloseRequested: root.close()
       onTextKey: function (t) {
         if (t === "r" || t === "R") {
@@ -661,16 +684,6 @@ Panel {
                     onClicked: service.runAction("warm", modelData.name,
                                                  modelData.kind)
 
-                    // Secondary action on the same clickable surface, same
-                    // idiom the audio panel already uses for its mute
-                    // toggle: rightClicked is Button's own built-in second
-                    // signal, so this needs no nested MouseArea inside the
-                    // button (which would risk exactly the click-through
-                    // problem above) and does not steal the primary click,
-                    // which stays the documented "click a model to run it."
-                    onRightClicked: root.expandedModel =
-                      (root.expandedModel === modelData.name ? "" : modelData.name)
-
                     // Same idiom as the bar-glyph badge in the BarIconButton
                     // above: plain Text children painted over the clickable
                     // surface. No MouseArea here, so click-to-load, hover, and
@@ -704,6 +717,36 @@ Panel {
                         font.pixelSize: Style.font.caption
                       }
                     }
+                  }
+
+                  // Expand trigger. A sibling of installedButton, never a
+                  // child of it -- the delegate root above is a ColumnLayout
+                  // holding installedButton and this as siblings, so this
+                  // has no path to installedButton.onClicked and cannot
+                  // fire a warm no matter how it's clicked. An earlier
+                  // version of this row used installedButton.onRightClicked
+                  // for the same toggle to avoid adding anything to the
+                  // visual tree at all, but the owner overruled that: right
+                  // click has no visible affordance, so nothing on screen
+                  // told anyone this existed. This is the plain, unbordered
+                  // Button already used everywhere else in this panel for a
+                  // small action (apply below, start/stop/restart above,
+                  // the loaded list's ✕) -- dim and caption-sized so a
+                  // permanent line per model doesn't dominate the list.
+                  // Button's own `focusable` defaults to false, so it never
+                  // becomes a Tab stop between the parameter fields.
+                  Button {
+                    Layout.leftMargin: Style.space(14)
+                    text: "config"
+                    foreground: root.dim
+                    tooltipText: (root.expandedModel === modelData.name
+                                  ? "Hide" : "Show") + " this model's parameters"
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(6)
+                    verticalPadding: Style.space(2)
+                    onClicked: root.expandedModel =
+                      (root.expandedModel === modelData.name ? "" : modelData.name)
                   }
 
                   // Expanded parameter editor. A sibling of installedButton,
@@ -758,7 +801,8 @@ Panel {
                           horizontalAlignment: TextInput.AlignRight
                           implicitWidth: Style.space(70)
 
-                          onActiveFocusChanged: root.paramFieldFocused = activeFocus
+                          onActiveFocusChanged: root.paramFieldsFocused +=
+                                                  activeFocus ? 1 : -1
 
                           onEditingFinished: {
                             var parsed = Model.parseParamInput(paramKey, text)
