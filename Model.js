@@ -176,10 +176,10 @@ function bootIsToggleable(unitFileState) {
 var PARAM_SPECS = [
   { key: "num_ctx", label: "context", min: 4096, max: 131072, step: 1,
     decimals: 0, kinds: ["generate", "embed"],
-    description: "tokens it can consider at once — prompt plus reply" },
+    description: "prompt plus reply, in tokens" },
   { key: "temperature", label: "temperature", min: 0, max: 2, step: 0.01,
     decimals: 2, kinds: ["generate"],
-    description: "higher is more random; 0 is repeatable" }]
+    description: "higher is more random; 0 repeatable" }]
 
 function paramSpec(key) {
   for (var i = 0; i < PARAM_SPECS.length; i++)

@@ -67,12 +67,15 @@ Panel {
   // resetting here is what keeps the count from sticking above zero and
   // leaving PanelKeyCatcher permanently blocked.
   //
-  // One path this does not catch: the server stopping mid-edit hides the
-  // editor (its `visible` also gates on root.status) without expandedModel
-  // itself changing, so the count can still drift on that path. Left
-  // deliberately unhandled -- that path re-gates every other control in
-  // this panel too, and the symptom (blocked stuck true) is diagnosable and
-  // clears the moment the row is collapsed or re-expanded.
+  // This reset is belt-and-braces, not the primary mechanism. The field's own
+  // `onVisibleChanged` releases focus whenever the editor is hidden, which
+  // fires the decrement, and that covers paths this handler cannot see --
+  // notably the server stopping mid-edit, which hides the editor (its
+  // `visible` also gates on root.status) without expandedModel changing at
+  // all. Probe-verified on that exact path: focus a field, drop status to
+  // stopped, and the count lands at 0 with the catcher unblocked. Both are
+  // kept because the failure mode is a panel whose keyboard stops working,
+  // and the clamp below makes the overlap harmless.
   onExpandedModelChanged: root.paramFieldsFocused = 0
 
   implicitWidth: button.implicitWidth
@@ -642,122 +645,137 @@ Panel {
                   Layout.leftMargin: Style.space(14)
                   spacing: Style.space(2)
 
-                  Button {
-                    id: installedButton
-                    // The button no longer gets its own leftMargin -- the
-                    // new root above carries it for the whole row -- but it
-                    // still needs fillWidth of its own: a ColumnLayout only
-                    // stretches a child to its own width when that child
-                    // asks for it, so without this the button would shrink
-                    // to its label's implicit width and the name/size row
-                    // anchored inside it would be clipped to match.
+                  // Name/size and `config` share ONE row. They used to be two
+                  // stacked rows, which cost every model a permanent second
+                  // line -- eleven models meant twenty-two rows inside a list
+                  // capped at Style.space(190), so the list mostly scrolled.
+                  // `config` still cannot live INSIDE installedButton (that
+                  // surface is the click-to-warm target), so it is a sibling
+                  // here and the button takes the slack via fillWidth.
+                  RowLayout {
                     Layout.fillWidth: true
-                    // One click: start the server if needed, wait for the port,
-                    // then warm the model. You rarely want "the server" -- you
-                    // want a model.
-                    //
-                    // The label is a single space, not "" -- Button's Row skips
-                    // any child made invisible by `visible: text !== ""`
-                    // entirely, so an empty label collapses row.implicitHeight
-                    // (and with it the button's implicitHeight) to 0. A
-                    // one-character label keeps that Text visible, which keeps
-                    // the row's real line-height, and paints nothing since a
-                    // space has no ink -- confirmed with a headless qml probe
-                    // (see the SDD report). leftAlign is dropped: with no
-                    // visible label left to position, it no longer does
-                    // anything.
-                    text: " "
-                    foreground: root.fg
-                    tooltipText: {
-                      var bits = [modelData.name]
-                      if (modelData.parameterSize) bits.push(modelData.parameterSize)
-                      if (modelData.quantization) bits.push(modelData.quantization)
-                      if (modelData.family) bits.push(modelData.family)
-                      return bits.join(" · ") + " — click to load"
+                    spacing: Style.space(6)
+
+                      Button {
+                        id: installedButton
+                      // The button no longer gets its own leftMargin -- the
+                      // new root above carries it for the whole row -- but it
+                      // still needs fillWidth of its own: a ColumnLayout only
+                      // stretches a child to its own width when that child
+                      // asks for it, so without this the button would shrink
+                      // to its label's implicit width and the name/size row
+                      // anchored inside it would be clipped to match.
+                      Layout.fillWidth: true
+                      // One click: start the server if needed, wait for the port,
+                      // then warm the model. You rarely want "the server" -- you
+                      // want a model.
+                      //
+                      // The label is a single space, not "" -- Button's Row skips
+                      // any child made invisible by `visible: text !== ""`
+                      // entirely, so an empty label collapses row.implicitHeight
+                      // (and with it the button's implicitHeight) to 0. A
+                      // one-character label keeps that Text visible, which keeps
+                      // the row's real line-height, and paints nothing since a
+                      // space has no ink -- confirmed with a headless qml probe
+                      // (see the SDD report). leftAlign is dropped: with no
+                      // visible label left to position, it no longer does
+                      // anything.
+                      text: " "
+                      foreground: root.fg
+                      tooltipText: {
+                        var bits = [modelData.name]
+                        if (modelData.parameterSize) bits.push(modelData.parameterSize)
+                        if (modelData.quantization) bits.push(modelData.quantization)
+                        if (modelData.family) bits.push(modelData.family)
+                        return bits.join(" · ") + " — click to load"
+                      }
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.caption
+                      horizontalPadding: Style.space(6)
+                      verticalPadding: Style.space(2)
+                      enabled: service.actionInProgress === "" &&
+                               root.status !== "missing" &&
+                               root.status !== "foreign"
+                      opacity: enabled ? 1.0 : 0.4
+                      onClicked: service.runAction("warm", modelData.name,
+                                                   modelData.kind)
+
+                      // Same idiom as the bar-glyph badge in the BarIconButton
+                      // above: plain Text children painted over the clickable
+                      // surface. No MouseArea here, so click-to-load, hover, and
+                      // the tooltip all keep working straight through. Anchored
+                      // to the button's own reserved content insets so the text
+                      // lines up with where the concatenated label used to sit,
+                      // rather than flush against the border.
+                      RowLayout {
+                        anchors.left: installedButton.left
+                        anchors.leftMargin: installedButton._reservedContentLeftInset
+                        anchors.right: installedButton.right
+                        anchors.rightMargin: installedButton._reservedBorderRight +
+                                              installedButton.horizontalPadding
+                        anchors.verticalCenter: installedButton.verticalCenter
+                        spacing: Style.space(6)
+
+                        Text {
+                          text: modelData.name
+                          color: root.fg
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          Layout.fillWidth: true
+                          elide: Text.ElideRight
+                        }
+
+                        Text {
+                          text: service.actionInProgress === "warm:" + modelData.name
+                            ? "warming…" : Model.formatBytes(modelData.sizeBytes)
+                          color: root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+                      }
                     }
-                    fontFamily: root.fontFamily
-                    fontSize: Style.font.caption
-                    horizontalPadding: Style.space(6)
-                    verticalPadding: Style.space(2)
-                    enabled: service.actionInProgress === "" &&
-                             root.status !== "missing" &&
-                             root.status !== "foreign"
-                    opacity: enabled ? 1.0 : 0.4
-                    onClicked: service.runAction("warm", modelData.name,
-                                                 modelData.kind)
 
-                    // Same idiom as the bar-glyph badge in the BarIconButton
-                    // above: plain Text children painted over the clickable
-                    // surface. No MouseArea here, so click-to-load, hover, and
-                    // the tooltip all keep working straight through. Anchored
-                    // to the button's own reserved content insets so the text
-                    // lines up with where the concatenated label used to sit,
-                    // rather than flush against the border.
-                    RowLayout {
-                      anchors.left: installedButton.left
-                      anchors.leftMargin: installedButton._reservedContentLeftInset
-                      anchors.right: installedButton.right
-                      anchors.rightMargin: installedButton._reservedBorderRight +
-                                            installedButton.horizontalPadding
-                      anchors.verticalCenter: installedButton.verticalCenter
-                      spacing: Style.space(6)
-
-                      Text {
-                        text: modelData.name
-                        color: root.fg
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                        Layout.fillWidth: true
-                        elide: Text.ElideRight
-                      }
-
-                      Text {
-                        text: service.actionInProgress === "warm:" + modelData.name
-                          ? "warming…" : Model.formatBytes(modelData.sizeBytes)
-                        color: root.dim
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                      }
+                    // Expand trigger. A sibling of installedButton, never a
+                    // child of it -- the delegate root above is a ColumnLayout
+                    // holding installedButton and this as siblings, so this
+                    // has no path to installedButton.onClicked and cannot
+                    // fire a warm no matter how it's clicked. An earlier
+                    // version of this row used installedButton.onRightClicked
+                    // for the same toggle to avoid adding anything to the
+                    // visual tree at all, but the owner overruled that: right
+                    // click has no visible affordance, so nothing on screen
+                    // told anyone this existed. This is the plain, unbordered
+                    // Button already used everywhere else in this panel for a
+                    // small action (apply below, start/stop/restart above,
+                    // the loaded list's ✕) -- dim and caption-sized so a
+                    // permanent line per model doesn't dominate the list.
+                    // Button's own `focusable` defaults to false, so it never
+                    // becomes a Tab stop between the parameter fields.
+                    Button {
+                      // No leftMargin: it sits at the end of the row, after
+                      // installedButton has taken the slack via fillWidth, so
+                      // it lands just right of the model's size. It briefly
+                      // had a Style.space(14) from when it was a row of its
+                      // own beneath the model -- stacked on the delegate
+                      // root's own margin, that pushed its label 14px past the
+                      // name, which is what read as misalignment on screen.
+                      // Nothing here needs to align now, but the padding is
+                      // still deliberately Style.space(6), matching
+                      // installedButton so the two labels share a baseline
+                      // rhythm rather than one looking taller than the other.
+                      text: "config"
+                      foreground: root.dim
+                      tooltipText: (root.expandedModel === modelData.name
+                                    ? "Hide" : "Show") + " this model's parameters"
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.caption
+                      horizontalPadding: Style.space(6)
+                      verticalPadding: Style.space(2)
+                      onClicked: root.expandedModel =
+                        (root.expandedModel === modelData.name ? "" : modelData.name)
                     }
                   }
 
-                  // Expand trigger. A sibling of installedButton, never a
-                  // child of it -- the delegate root above is a ColumnLayout
-                  // holding installedButton and this as siblings, so this
-                  // has no path to installedButton.onClicked and cannot
-                  // fire a warm no matter how it's clicked. An earlier
-                  // version of this row used installedButton.onRightClicked
-                  // for the same toggle to avoid adding anything to the
-                  // visual tree at all, but the owner overruled that: right
-                  // click has no visible affordance, so nothing on screen
-                  // told anyone this existed. This is the plain, unbordered
-                  // Button already used everywhere else in this panel for a
-                  // small action (apply below, start/stop/restart above,
-                  // the loaded list's ✕) -- dim and caption-sized so a
-                  // permanent line per model doesn't dominate the list.
-                  // Button's own `focusable` defaults to false, so it never
-                  // becomes a Tab stop between the parameter fields.
-                  Button {
-                    // No leftMargin of its own. The delegate root already
-                    // carries Style.space(14) for the whole row, and this
-                    // Button's own _reservedContentLeftInset then insets its
-                    // label by exactly what installedButton's inset is --
-                    // both use horizontalPadding: Style.space(6) -- so
-                    // "config" lands under the model name with no arithmetic.
-                    // A Style.space(14) here (what this used to have) stacked
-                    // on the root's and pushed the label 14px past the name,
-                    // which is what read as misalignment on screen.
-                    text: "config"
-                    foreground: root.dim
-                    tooltipText: (root.expandedModel === modelData.name
-                                  ? "Hide" : "Show") + " this model's parameters"
-                    fontFamily: root.fontFamily
-                    fontSize: Style.font.caption
-                    horizontalPadding: Style.space(6)
-                    verticalPadding: Style.space(2)
-                    onClicked: root.expandedModel =
-                      (root.expandedModel === modelData.name ? "" : modelData.name)
-                  }
 
                   // Expanded parameter editor. A sibling of installedButton,
                   // never a child -- see the comment on the root ColumnLayout
@@ -820,15 +838,30 @@ Panel {
                       }, "")
                     }
 
-                    // Width of the value column. num_ctx's ceiling is the
-                    // longest thing any field can hold ("131072", 6 digits);
-                    // one extra zero of slack keeps the caret from riding the
-                    // border on a full-width entry.
+                    // Width of the value column: the widest string a field can
+                    // DISPLAY, which is not the widest value it can hold. The
+                    // range placeholder "4096–131072" is 11 characters where
+                    // num_ctx's own ceiling is 6, and sizing from the value
+                    // alone is what elided the placeholder to "4096–1…" on
+                    // screen. Ranges do not always win either -- temperature's
+                    // "0–2" is shorter than values it will hold -- so this
+                    // takes the longest of every string any field renders,
+                    // asking Model for each rather than restating it here.
+                    // Length is a sound proxy for width only because the panel
+                    // is monospace throughout.
                     TextMetrics {
                       id: paramValueMetrics
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
-                      text: "0000000"
+                      text: Model.PARAM_SPECS.reduce(function (widest, spec) {
+                        var shown = [Model.formatParamRange(spec.key),
+                                     Model.formatParamValue(spec.key, spec.min),
+                                     Model.formatParamValue(spec.key, spec.max)]
+                        for (var i = 0; i < shown.length; i++)
+                          if (shown[i].length > widest.length)
+                            widest = shown[i]
+                        return widest
+                      }, "")
                     }
 
                     Repeater {
@@ -845,151 +878,152 @@ Panel {
                       // collision instead of fighting it.
                       model: paramEditor.editableSpecs.length
 
-                      // A Repeater delegate permits exactly one root, so the
-                      // field row and its caption both live inside this
-                      // ColumnLayout rather than the field row being the
-                      // delegate root directly.
-                      ColumnLayout {
-                        id: specColumn
+                      // The delegate root is this RowLayout directly. It was
+                      // briefly a ColumnLayout wrapping the row plus a caption
+                      // on its own line; with the caption moved inline the
+                      // wrapper had one child and nothing to space, so it is
+                      // gone. `spec` lives here now -- note that the fields
+                      // below reach it as specRow.spec, an id, which resolves
+                      // from anywhere in this component. An unqualified `spec`
+                      // would NOT: QML resolves unqualified names against the
+                      // object itself, the component root and declared ids
+                      // only, never arbitrary ancestors. That distinction is
+                      // what broke paramEditor.editableSpecs once already.
+                      RowLayout {
+                        id: specRow
                         readonly property var spec: paramEditor.editableSpecs[index]
                         Layout.fillWidth: true
-                        spacing: Style.space(1)
+                        // Indents the label/value pair to exactly where
+                        // installedButton paints the model name -- the same
+                        // anchor the name/size row above uses. Per trap 29
+                        // this is a private upstream property: if it ever
+                        // disappears the margin resolves to 0 and these rows
+                        // go flush with the button's border instead of lining
+                        // up under the name. Cosmetic, not a crash.
+                        Layout.leftMargin:
+                          installedButton._reservedContentLeftInset
+                        spacing: Style.space(6)
 
-                        RowLayout {
-                          id: specRow
-                          Layout.fillWidth: true
-                          // Indents the label/value pair to exactly where
-                          // installedButton paints the model name -- the same
-                          // anchor the name/size row above uses. Per trap 29
-                          // this is a private upstream property: if it ever
-                          // disappears the margin resolves to 0 and these rows
-                          // go flush with the button's border instead of lining
-                          // up under the name. Cosmetic, not a crash.
-                          Layout.leftMargin:
-                            installedButton._reservedContentLeftInset
-                          spacing: Style.space(6)
+                        Text {
+                          text: specRow.spec.label
+                          color: root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          // A measured column, not fillWidth. fillWidth kept
+                          // the value boxes in a straight column too, but only
+                          // by stretching each label until its own value sat
+                          // against the panel's right edge. Pinning the label
+                          // width instead keeps that column straight AND lets
+                          // the value sit beside its label.
+                          Layout.preferredWidth: paramLabelMetrics.width
+                        }
 
-                          Text {
-                            text: specColumn.spec.label
-                            color: root.dim
-                            font.family: root.fontFamily
-                            font.pixelSize: Style.font.caption
-                            // A measured column, not fillWidth. fillWidth kept
-                            // the value boxes in a straight column too, but only
-                            // by stretching each label until its own value sat
-                            // against the panel's right edge. Pinning the label
-                            // width instead keeps that column straight AND lets
-                            // the value sit beside its label.
-                            Layout.preferredWidth: paramLabelMetrics.width
-                          }
+                        TextField {
+                          id: paramField
+                          readonly property string paramKey: specRow.spec.key
 
-                          TextField {
-                            id: paramField
-                            readonly property string paramKey: specColumn.spec.key
+                          text: service.paramEditText(root.expandedEntry, paramKey)
+                          // An unset field is the MAIN case, not an edge
+                          // case -- num_ctx is blank on every generative
+                          // model in the owner's real store -- so the valid
+                          // range doubles as the field's own explanation of
+                          // what it will accept. The dim caption Text below
+                          // covers WHAT the parameter does; this covers
+                          // what values are legal.
+                          placeholderText: Model.formatParamRange(paramKey)
+                          foreground: root.fg
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          horizontalAlignment: TextInput.AlignRight
+                          // TextField's own header comment: "the default 30px
+                          // implicitHeight fits dialog forms; inline callers
+                          // (wifi's row-embedded passphrase prompt) drop
+                          // verticalPadding to match a 22-26px row." This is
+                          // an inline caller and was using the dialog default,
+                          // which is why four fields cost ~190px of a list
+                          // capped at Style.space(190). controlGap/xs land it
+                          // at the bottom of that documented range.
+                          horizontalPadding: Style.spacing.controlGap
+                          verticalPadding: Style.spacing.xs
+                          implicitWidth: paramValueMetrics.width +
+                                         horizontalPadding * 2 + Style.space(4)
 
-                            text: service.paramEditText(root.expandedEntry, paramKey)
-                            // An unset field is the MAIN case, not an edge
-                            // case -- num_ctx is blank on every generative
-                            // model in the owner's real store -- so the valid
-                            // range doubles as the field's own explanation of
-                            // what it will accept. The dim caption Text below
-                            // covers WHAT the parameter does; this covers
-                            // what values are legal.
-                            placeholderText: Model.formatParamRange(paramKey)
-                            foreground: root.fg
-                            font.family: root.fontFamily
-                            font.pixelSize: Style.font.caption
-                            horizontalAlignment: TextInput.AlignRight
-                            // TextField's own header comment: "the default 30px
-                            // implicitHeight fits dialog forms; inline callers
-                            // (wifi's row-embedded passphrase prompt) drop
-                            // verticalPadding to match a 22-26px row." This is
-                            // an inline caller and was using the dialog default,
-                            // which is why four fields cost ~190px of a list
-                            // capped at Style.space(190). controlGap/xs land it
-                            // at the bottom of that documented range.
-                            horizontalPadding: Style.spacing.controlGap
-                            verticalPadding: Style.spacing.xs
-                            implicitWidth: paramValueMetrics.width +
-                                           horizontalPadding * 2 + Style.space(4)
+                          // Qt does NOT clear activeFocus when an item is
+                          // hidden -- verified by headless qml6 probe, three
+                          // deterministic runs. Without this, collapsing a row
+                          // while a field held focus left activeFocus stuck
+                          // true with no signal, so the counter below never
+                          // decremented; re-expanding then read
+                          // paramFieldsFocused === 0 while a field really did
+                          // have focus, and PanelKeyCatcher stole k/j/h/l,
+                          // Enter and r straight back -- the exact bug PR #6
+                          // shipped. Releasing focus here fires the -1.
+                          onVisibleChanged: if (!visible && activeFocus)
+                                              focus = false
 
-                            // Qt does NOT clear activeFocus when an item is
-                            // hidden -- verified by headless qml6 probe, three
-                            // deterministic runs. Without this, collapsing a row
-                            // while a field held focus left activeFocus stuck
-                            // true with no signal, so the counter below never
-                            // decremented; re-expanding then read
-                            // paramFieldsFocused === 0 while a field really did
-                            // have focus, and PanelKeyCatcher stole k/j/h/l,
-                            // Enter and r straight back -- the exact bug PR #6
-                            // shipped. Releasing focus here fires the -1.
-                            onVisibleChanged: if (!visible && activeFocus)
-                                                focus = false
+                          // Clamped at zero: two fields handing focus over
+                          // directly fire their signals in either order, and
+                          // onExpandedModelChanged also resets to 0, so an
+                          // unclamped -= could strand the counter negative --
+                          // permanently below the `> 0` that blocks the key
+                          // catcher. Clamping fails toward blocking.
+                          onActiveFocusChanged: root.paramFieldsFocused =
+                            Math.max(0, root.paramFieldsFocused +
+                                        (activeFocus ? 1 : -1))
 
-                            // Clamped at zero: two fields handing focus over
-                            // directly fire their signals in either order, and
-                            // onExpandedModelChanged also resets to 0, so an
-                            // unclamped -= could strand the counter negative --
-                            // permanently below the `> 0` that blocks the key
-                            // catcher. Clamping fails toward blocking.
-                            onActiveFocusChanged: root.paramFieldsFocused =
-                              Math.max(0, root.paramFieldsFocused +
-                                          (activeFocus ? 1 : -1))
-
-                            onEditingFinished: {
-                              var parsed = Model.parseParamInput(paramKey, text)
-                              if (isNaN(parsed)) {
-                                // Garbage reverts rather than being stored, so
-                                // apply can never offer to send it.
-                                text = Qt.binding(function () {
-                                  return service.paramEditText(root.expandedEntry,
-                                                               paramKey)
-                                })
-                                return
-                              }
-                              service.setParamEdit(root.expandedModel, paramKey,
-                                                   String(parsed))
-                            }
-
-                            Keys.onEscapePressed: function (event) {
-                              // Revert and defocus. Does NOT close the panel --
-                              // esc inside an editor means "abandon this edit."
-                              // PanelKeyCatcher is already blocked while this
-                              // field has focus, so this handler is what fires;
-                              // event.accepted is set defensively so nothing
-                              // above it reinterprets the key regardless.
+                          onEditingFinished: {
+                            var parsed = Model.parseParamInput(paramKey, text)
+                            if (isNaN(parsed)) {
+                              // Garbage reverts rather than being stored, so
+                              // apply can never offer to send it.
                               text = Qt.binding(function () {
                                 return service.paramEditText(root.expandedEntry,
                                                              paramKey)
                               })
-                              focus = false
-                              event.accepted = true
+                              return
                             }
+                            service.setParamEdit(root.expandedModel, paramKey,
+                                                 String(parsed))
                           }
 
-                          // Absorbs the leftover width so the label/value pair
-                          // stays a tight unit on the left rather than being
-                          // stretched apart across the panel.
-                          Item {
-                            Layout.fillWidth: true
+                          Keys.onEscapePressed: function (event) {
+                            // Revert and defocus. Does NOT close the panel --
+                            // esc inside an editor means "abandon this edit."
+                            // PanelKeyCatcher is already blocked while this
+                            // field has focus, so this handler is what fires;
+                            // event.accepted is set defensively so nothing
+                            // above it reinterprets the key regardless.
+                            text = Qt.binding(function () {
+                              return service.paramEditText(root.expandedEntry,
+                                                           paramKey)
+                            })
+                            focus = false
+                            event.accepted = true
                           }
                         }
 
+                        // The caption shares its field's line and absorbs
+                        // the leftover width, so it also does the job the
+                        // explicit spacer used to do -- keeping the
+                        // label/value pair from being stretched apart. It
+                        // previously sat on its own line beneath the field,
+                        // which cost one line per parameter on top of the
+                        // per-model `config` line; inline, the block reads
+                        // as a table instead.
+                        //
+                        // elide rather than wrap: a wrapped caption grows
+                        // the row's height and gives back exactly the space
+                        // this change reclaims. Captions are therefore
+                        // written to fit -- roughly 40 characters at this
+                        // panel's width -- and the elide is the backstop for
+                        // a theme with a wider font, not the normal case.
                         Text {
-                          // Sits under the FIELD column, not the label column:
-                          // the row's own base inset plus the label column's
-                          // measured width plus specRow's inter-column spacing
-                          // lines this up with paramField instead of with its
-                          // label.
-                          text: specColumn.spec.description
+                          text: specRow.spec.description
                           color: root.dim
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.caption
                           Layout.fillWidth: true
-                          wrapMode: Text.WordWrap
-                          Layout.leftMargin:
-                            installedButton._reservedContentLeftInset +
-                            paramLabelMetrics.width + Style.space(6)
+                          elide: Text.ElideRight
                         }
                       }
                     }
