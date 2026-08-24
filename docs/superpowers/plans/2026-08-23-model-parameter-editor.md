@@ -2,9 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Open an installed model in the panel, see the four parameters it actually carries, edit them, and write them back with one explicit apply.
+> **Amended 2026-08-24 — this plan is a historical record, not current truth.**
+> Tasks 1-6 executed as written. The owner then saw the editor running and
+> narrowed it from four parameters to two (`num_ctx`, `temperature`), added a
+> range placeholder and a visible caption per parameter, and asked for
+> inapplicable parameters to be hidden by model kind. That work is **Task 6b**,
+> which has no entry below; its requirements live in
+> `.superpowers/sdd/2026-08-23-model-parameter-editor/task-6b-brief.md` and the
+> reasoning is in the spec's `Amendment 2026-08-24` section. Wherever this plan
+> says "four parameters", "top_p" or "top_k" below, it is describing what was
+> built and then deliberately narrowed — read the spec amendment first.
 
-**Architecture:** Reading needs no new I/O — parameters already live on disk in an `application/vnd.ollama.image.params` manifest layer, so `scan_installed` reads one more blob and each entry gains a `parameters` object that rides the existing snapshot. Writing is one new verb in `colophon_action.py` posting to `POST /api/create` with inline parameters, which is the same `post_json` shape `warm` and `unload` already use. The panel expands a model row in place to show four click-to-type fields and an apply.
+**Goal:** Open an installed model in the panel, see the parameters it actually carries, edit them, and write them back with one explicit apply.
+
+**Architecture:** Reading needs no new I/O — parameters already live on disk in an `application/vnd.ollama.image.params` manifest layer, so `scan_installed` reads one more blob and each entry gains a `parameters` object that rides the existing snapshot. Writing is one new verb in `colophon_action.py` posting to `POST /api/create` with inline parameters, which is the same `post_json` shape `warm` and `unload` already use. The panel expands a model row in place to show click-to-type fields and an apply.
 
 **Tech Stack:** Python 3 stdlib, ES5-subset JavaScript, QML (Quickshell), Ollama HTTP API.
 
