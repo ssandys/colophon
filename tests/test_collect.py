@@ -308,6 +308,64 @@ class ScanInstalledTest(unittest.TestCase):
             self.assertEqual(by_name["weird:latest"]["sizeBytes"], 5)
             self.assertIn("llama3.2:3b", by_name)
 
+    def test_reads_the_four_parameters_from_the_params_layer(self):
+        # Ollama stores parameters as their own manifest layer, blob = plain
+        # JSON. nomic-embed-text's fixture manifest already declares a params
+        # layer digest (sha256-ce4a164f...); its blob holds {"num_ctx":8192},
+        # which is nomic-embed-text's real value on the target machine, so the
+        # fixture stays faithful. Only the four the editor owns would be
+        # surfaced if others were present -- a model declaring `stop` alone
+        # reports {} rather than leaking a list the panel has no idiom for.
+        entries, _ = collect.scan_installed(os.path.join(FIXTURES, "models"))
+        by_name = {entry["name"]: entry for entry in entries}
+        self.assertEqual(by_name["nomic-embed-text:latest"]["parameters"],
+                          {"num_ctx": 8192})
+
+    def test_a_model_with_no_params_layer_reports_an_empty_dict(self):
+        # Not None: Model.js and Panel.qml both index this, and a null would
+        # make every consumer guard for it. qwen2.5:7b's fixture manifest
+        # carries no params layer at all.
+        entries, _ = collect.scan_installed(os.path.join(FIXTURES, "models"))
+        by_name = {entry["name"]: entry for entry in entries}
+        self.assertEqual(by_name["qwen2.5:7b"]["parameters"], {})
+
+    def test_a_params_layer_whose_blob_is_absent_reports_an_empty_dict(self):
+        # deepseek-r1:latest's fixture manifest declares a params layer
+        # digest, but (like six of the other seven fixture models that
+        # declare one) no blob for that digest exists on disk. Same
+        # principle as the config blob above it: a params layer that cannot
+        # be read must cost that one model's parameters, not the inventory.
+        entries, _ = collect.scan_installed(os.path.join(FIXTURES, "models"))
+        by_name = {entry["name"]: entry for entry in entries}
+        self.assertEqual(by_name["deepseek-r1:latest"]["parameters"], {})
+
+    def test_a_malformed_params_blob_costs_that_model_only(self):
+        # Same principle as the manifest-shape tests above, one layer down:
+        # a params blob that exists but fails to parse must cost one model's
+        # parameters, not the whole inventory. Injected into a scratch copy
+        # of the fixture tree -- like the other corruption tests in this
+        # class -- rather than checked in, so the tracked fixture tree stays
+        # free of deliberately-broken data. ministral-3:3b's manifest already
+        # declares this digest as its params layer; no blob exists for it in
+        # the checked-in tree.
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "models")
+            shutil.copytree(os.path.join(FIXTURES, "models"), root)
+            bad = os.path.join(
+                root, "blobs",
+                "sha256-e0daf17ff83eace4813f9e8554b262f6cc33ad880ff8"
+                "df41a156ff9ef5522ddb")
+            with open(bad, "w") as handle:
+                handle.write("{not json")
+
+            entries, _ = collect.scan_installed(root)
+
+            by_name = {entry["name"]: entry for entry in entries}
+            self.assertEqual(by_name["ministral-3:3b"]["parameters"], {})
+            self.assertIn("llama3.2:3b", by_name)
+
 
 def names_of(entries):
     return [entry["name"] for entry in entries]
