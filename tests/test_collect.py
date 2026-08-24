@@ -308,12 +308,12 @@ class ScanInstalledTest(unittest.TestCase):
             self.assertEqual(by_name["weird:latest"]["sizeBytes"], 5)
             self.assertIn("llama3.2:3b", by_name)
 
-    def test_reads_the_four_parameters_from_the_params_layer(self):
+    def test_reads_the_editable_parameters_from_the_params_layer(self):
         # Ollama stores parameters as their own manifest layer, blob = plain
         # JSON. nomic-embed-text's fixture manifest already declares a params
         # layer digest (sha256-ce4a164f...); its blob holds {"num_ctx":8192},
         # which is nomic-embed-text's real value on the target machine, so the
-        # fixture stays faithful. Only the four the editor owns would be
+        # fixture stays faithful. Only the two the editor owns would be
         # surfaced if others were present -- a model declaring `stop` alone
         # reports {} rather than leaking a list the panel has no idiom for.
         entries, _ = collect.scan_installed(os.path.join(FIXTURES, "models"))
@@ -371,13 +371,16 @@ class ScanInstalledTest(unittest.TestCase):
         # params blob (nomic-embed-text's) holds a single key, so an
         # assertion against it alone would still pass with the filter loop
         # deleted outright -- "parameters = raw" gives the same result. This
-        # blob carries all four editable keys, one non-editable key
-        # (mirostat), one non-editable list (stop, echoing gemma3:4b's real
-        # shape on the target machine), and one editable key given the
-        # wrong type (top_p as a string) to prove both halves of the guard
-        # in one pass: an unlisted key is dropped, and a listed key with a
-        # non-numeric value is dropped too. gemma3:4b's manifest already
-        # declares a params layer digest with no blob on disk.
+        # blob carries one editable key given the right type (num_ctx),
+        # the other editable key given the wrong type (temperature as a
+        # string) to prove the type-check half of the guard, and four keys
+        # that are NOT editable: top_p and top_k (dropped from the editable
+        # set in task 6b, so they are ordinary unlisted keys now, same as
+        # the other two), a non-editable list (stop, echoing gemma3:4b's
+        # real shape on the target machine), and a non-editable int
+        # (mirostat). All four prove the unlisted-key half of the guard.
+        # gemma3:4b's manifest already declares a params layer digest with
+        # no blob on disk.
         import shutil
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -390,9 +393,9 @@ class ScanInstalledTest(unittest.TestCase):
             with open(blob_path, "w") as handle:
                 json.dump({
                     "num_ctx": 1,
-                    "temperature": 0.5,
-                    "top_p": "0.95",
-                    "top_k": None,
+                    "temperature": "0.5",
+                    "top_p": 0.95,
+                    "top_k": 40,
                     "stop": ["<end_of_turn>"],
                     "mirostat": 2,
                 }, handle)
@@ -401,7 +404,7 @@ class ScanInstalledTest(unittest.TestCase):
 
             by_name = {entry["name"]: entry for entry in entries}
             self.assertEqual(by_name["gemma3:4b"]["parameters"],
-                              {"num_ctx": 1, "temperature": 0.5})
+                              {"num_ctx": 1})
 
 
 def names_of(entries):

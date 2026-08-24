@@ -46,8 +46,6 @@ KINDS = ("generate", "embed")
 PARAM_BOUNDS = {
     "num_ctx": (4096, 131072, True),
     "temperature": (0.0, 2.0, False),
-    "top_p": (0.0, 1.0, False),
-    "top_k": (1, 200, True),
 }
 
 DEFAULT_API_BASE = "http://127.0.0.1:11434"

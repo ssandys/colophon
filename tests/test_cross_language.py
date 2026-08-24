@@ -89,6 +89,16 @@ class ModelJsSyntaxTest(unittest.TestCase):
         # guard. Deliberately naive: it would also strip a `//` inside a string
         # literal, which Model.js has none of. If one is ever added, this needs
         # a real tokenizer rather than a looser regex.
+        #
+        # That claim does not extend to every caller, though: ParamSpecTest
+        # below reuses this same method to strip Panel.qml's comments, and
+        # Panel.qml is not innocent of the pattern -- its `pathFromUrl` has
+        # `if (value.indexOf("file://") === 0)`, whose `//` truncates the rest
+        # of that line exactly like a real comment would. Harmless today
+        # because nothing load-bearing follows it there, but a future line
+        # that combines a `//`-bearing string with a numeric literal would
+        # have that literal silently vanish from anything reading this
+        # method's output, with no error to say so.
         source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
         return re.sub(r"//[^\n]*", "", source)
 
@@ -300,13 +310,16 @@ class ShowPropertyTest(unittest.TestCase):
 
 
 class ParamSpecTest(unittest.TestCase):
-    """The four parameters and their bounds live in three files. A one-sided
+    """The two parameters and their bounds live in three files. A one-sided
     edit fails silently: the panel would clamp to one range while the script
     refused another, and the user would see a field that will not commit with
     no error explaining why. See AGENTS.md trap #12.
+
+    Narrowed from four parameters to two in task 6b -- top_p and top_k are
+    gone from all three surfaces, and KEYS below shrank to match.
     """
 
-    KEYS = ["num_ctx", "temperature", "top_p", "top_k"]
+    KEYS = ["num_ctx", "temperature"]
 
     def test_the_parameter_set_agrees_across_all_three_surfaces(self):
         # Comments stripped first, as ModelJsSyntaxTest.code_only does for its
@@ -316,7 +329,7 @@ class ParamSpecTest(unittest.TestCase):
         # Order matters in Model.js: PARAM_SPECS drives display order.
         found = re.findall(r'\{\s*key:\s*"([a-z_]+)"', model_js)
         self.assertEqual(found, self.KEYS,
-                         "Model.PARAM_SPECS must list exactly these four, in "
+                         "Model.PARAM_SPECS must list exactly these two, in "
                          "this order")
         self.assertEqual(sorted(action_mod.PARAM_BOUNDS), sorted(self.KEYS),
                          "colophon_action.PARAM_BOUNDS must cover the same "
@@ -339,10 +352,32 @@ class ParamSpecTest(unittest.TestCase):
         # reads Panel.qml for exactly this reason.
         #
         # Comments stripped first -- QML uses the same // and /* */ syntax as
-        # Model.js, so ModelJsSyntaxTest.code_only works unchanged. Without
-        # this, Panel.qml's own comment sizing the num_ctx text field ("the
-        # longest thing any field can hold (\"131072\", 6 digits)") would
-        # trip this guard on prose, not code.
+        # Model.js, so ModelJsSyntaxTest.code_only works unchanged (with the
+        # string-literal caveat noted on that method -- Panel.qml's
+        # pathFromUrl has a `//` inside a string that this strip mistakes for
+        # a comment marker; harmless here since no bound sits on that line).
+        # Without stripping, Panel.qml's own comment sizing the num_ctx text
+        # field ("the longest thing any field can hold (\"131072\", 6
+        # digits)") would trip this guard on prose, not code.
+        #
+        # assertNotIn is a substring check, not a word-boundary one: an
+        # unrelated future literal that merely CONTAINS "4096" or "131072" as
+        # a substring (e.g. a byte size like "40960" or an unrelated
+        # "13107200") would fail this test even though it has nothing to do
+        # with num_ctx. Left as-is rather than fixed with a regex word
+        # boundary: it fails loud and specific enough (the assertion message
+        # names the exact key and bound) that a false hit is easy to diagnose
+        # and dismiss, which is not true of the silent drift this test exists
+        # to catch.
+        #
+        # Residual gap: after narrowing to two parameters, this only pins
+        # num_ctx's 4096 and 131072. temperature's 0 and 2 are excluded below
+        # as too ambiguous to assert against QML -- they read as ordinary
+        # margins, opacities and Style.space multipliers throughout the file
+        # -- so a drift in temperature's bounds specifically would NOT be
+        # caught here. test_the_bounds_agree_between_javascript_and_python
+        # above is what actually pins temperature's numbers; this test only
+        # ever covered num_ctx in practice.
         panel = ModelJsSyntaxTest.code_only(read("Panel.qml"))
         for key, (low, high, _is_int) in action_mod.PARAM_BOUNDS.items():
             for bound in (low, high):
@@ -351,7 +386,8 @@ class ParamSpecTest(unittest.TestCase):
                 # for reasons that have nothing to do with these parameters.
                 # Asserting on them would be either vacuously true or wrong
                 # the moment an unrelated "2" is added nearby, so only
-                # num_ctx's bounds and top_k's 200 are checked here.
+                # num_ctx's bounds are checked here (top_k's 200 was the
+                # other one, before task 6b dropped top_k entirely).
                 if bound in (0, 0.0, 1, 1.0, 2, 2.0):
                     continue
                 self.assertNotIn(
