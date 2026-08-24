@@ -366,6 +366,43 @@ class ScanInstalledTest(unittest.TestCase):
             self.assertEqual(by_name["ministral-3:3b"]["parameters"], {})
             self.assertIn("llama3.2:3b", by_name)
 
+    def test_the_filter_drops_non_editable_keys_and_wrong_typed_values(self):
+        # Regression coverage for the filter itself. The one checked-in
+        # params blob (nomic-embed-text's) holds a single key, so an
+        # assertion against it alone would still pass with the filter loop
+        # deleted outright -- "parameters = raw" gives the same result. This
+        # blob carries all four editable keys, one non-editable key
+        # (mirostat), one non-editable list (stop, echoing gemma3:4b's real
+        # shape on the target machine), and one editable key given the
+        # wrong type (top_p as a string) to prove both halves of the guard
+        # in one pass: an unlisted key is dropped, and a listed key with a
+        # non-numeric value is dropped too. gemma3:4b's manifest already
+        # declares a params layer digest with no blob on disk.
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "models")
+            shutil.copytree(os.path.join(FIXTURES, "models"), root)
+            blob_path = os.path.join(
+                root, "blobs",
+                "sha256-3116c52250752e00dd06b16382e952bd33c34fd79fc4fe3a5"
+                "d2c77cf7de1b14b")
+            with open(blob_path, "w") as handle:
+                json.dump({
+                    "num_ctx": 1,
+                    "temperature": 0.5,
+                    "top_p": "0.95",
+                    "top_k": None,
+                    "stop": ["<end_of_turn>"],
+                    "mirostat": 2,
+                }, handle)
+
+            entries, _ = collect.scan_installed(root)
+
+            by_name = {entry["name"]: entry for entry in entries}
+            self.assertEqual(by_name["gemma3:4b"]["parameters"],
+                              {"num_ctx": 1, "temperature": 0.5})
+
 
 def names_of(entries):
     return [entry["name"] for entry in entries]
