@@ -32,6 +32,25 @@ Panel {
   readonly property var snap: service.snapshot
   readonly property string status: service.effectiveStatus
 
+  // True while a parameter TextField holds focus. PanelKeyCatcher binds
+  // `blocked` to this so j/k/h/l, Enter and Escape reach the focused field
+  // instead of the panel's own key handling -- see the header comment on
+  // PanelKeyCatcher and the three first-party panels (network, clock,
+  // weather) that already do this for their own inline editors.
+  property bool paramFieldFocused: false
+
+  // Which installed model has its editor expanded, by name. One at a time:
+  // the list is height-capped and clips, so two open editors would mean
+  // scrolling inside a scroll to reach the second one's apply.
+  property string expandedModel: ""
+
+  readonly property var expandedEntry: {
+    var list = root.snap.installed || []
+    for (var i = 0; i < list.length; i++)
+      if (list[i].name === root.expandedModel) return list[i]
+    return null
+  }
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -136,6 +155,11 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      // Freeze the panel's own key handling while a parameter field owns
+      // input -- otherwise lowercase j/k/h/l vanish into cursor movement,
+      // Enter never reaches onEditingFinished, and Escape closes the whole
+      // panel instead of just reverting the field.
+      blocked: root.paramFieldFocused
       onCloseRequested: root.close()
       onTextKey: function (t) {
         if (t === "r" || t === "R") {
@@ -577,75 +601,210 @@ Panel {
               Repeater {
                 model: root.snap.installed || []
 
-                Button {
-                  id: installedButton
+                // The delegate's root used to be `installedButton` itself.
+                // It no longer can be: the parameter editor below needs to
+                // sit beside the button, never inside it, because the
+                // button's whole surface is a click-to-warm target. Putting
+                // four TextFields inside that surface would mean clicking a
+                // field to edit it also fires a multi-gigabyte model load.
+                // A Repeater delegate permits exactly one root, so that root
+                // is now this ColumnLayout, and Layout.fillWidth /
+                // Layout.leftMargin -- previously the button's own -- move
+                // here. The button keeps everything else (id included, so
+                // _reservedContentLeftInset below still resolves) unchanged.
+                ColumnLayout {
                   Layout.fillWidth: true
                   Layout.leftMargin: Style.space(14)
-                  // One click: start the server if needed, wait for the port,
-                  // then warm the model. You rarely want "the server" -- you
-                  // want a model.
-                  //
-                  // The label is a single space, not "" -- Button's Row skips
-                  // any child made invisible by `visible: text !== ""`
-                  // entirely, so an empty label collapses row.implicitHeight
-                  // (and with it the button's implicitHeight) to 0. A
-                  // one-character label keeps that Text visible, which keeps
-                  // the row's real line-height, and paints nothing since a
-                  // space has no ink -- confirmed with a headless qml probe
-                  // (see the SDD report). leftAlign is dropped: with no
-                  // visible label left to position, it no longer does
-                  // anything.
-                  text: " "
-                  foreground: root.fg
-                  tooltipText: {
-                    var bits = [modelData.name]
-                    if (modelData.parameterSize) bits.push(modelData.parameterSize)
-                    if (modelData.quantization) bits.push(modelData.quantization)
-                    if (modelData.family) bits.push(modelData.family)
-                    return bits.join(" · ") + " — click to load"
+                  spacing: Style.space(2)
+
+                  Button {
+                    id: installedButton
+                    // The button no longer gets its own leftMargin -- the
+                    // new root above carries it for the whole row -- but it
+                    // still needs fillWidth of its own: a ColumnLayout only
+                    // stretches a child to its own width when that child
+                    // asks for it, so without this the button would shrink
+                    // to its label's implicit width and the name/size row
+                    // anchored inside it would be clipped to match.
+                    Layout.fillWidth: true
+                    // One click: start the server if needed, wait for the port,
+                    // then warm the model. You rarely want "the server" -- you
+                    // want a model.
+                    //
+                    // The label is a single space, not "" -- Button's Row skips
+                    // any child made invisible by `visible: text !== ""`
+                    // entirely, so an empty label collapses row.implicitHeight
+                    // (and with it the button's implicitHeight) to 0. A
+                    // one-character label keeps that Text visible, which keeps
+                    // the row's real line-height, and paints nothing since a
+                    // space has no ink -- confirmed with a headless qml probe
+                    // (see the SDD report). leftAlign is dropped: with no
+                    // visible label left to position, it no longer does
+                    // anything.
+                    text: " "
+                    foreground: root.fg
+                    tooltipText: {
+                      var bits = [modelData.name]
+                      if (modelData.parameterSize) bits.push(modelData.parameterSize)
+                      if (modelData.quantization) bits.push(modelData.quantization)
+                      if (modelData.family) bits.push(modelData.family)
+                      return bits.join(" · ") + " — click to load"
+                    }
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    horizontalPadding: Style.space(6)
+                    verticalPadding: Style.space(2)
+                    enabled: service.actionInProgress === "" &&
+                             root.status !== "missing" &&
+                             root.status !== "foreign"
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: service.runAction("warm", modelData.name,
+                                                 modelData.kind)
+
+                    // Secondary action on the same clickable surface, same
+                    // idiom the audio panel already uses for its mute
+                    // toggle: rightClicked is Button's own built-in second
+                    // signal, so this needs no nested MouseArea inside the
+                    // button (which would risk exactly the click-through
+                    // problem above) and does not steal the primary click,
+                    // which stays the documented "click a model to run it."
+                    onRightClicked: root.expandedModel =
+                      (root.expandedModel === modelData.name ? "" : modelData.name)
+
+                    // Same idiom as the bar-glyph badge in the BarIconButton
+                    // above: plain Text children painted over the clickable
+                    // surface. No MouseArea here, so click-to-load, hover, and
+                    // the tooltip all keep working straight through. Anchored
+                    // to the button's own reserved content insets so the text
+                    // lines up with where the concatenated label used to sit,
+                    // rather than flush against the border.
+                    RowLayout {
+                      anchors.left: installedButton.left
+                      anchors.leftMargin: installedButton._reservedContentLeftInset
+                      anchors.right: installedButton.right
+                      anchors.rightMargin: installedButton._reservedBorderRight +
+                                            installedButton.horizontalPadding
+                      anchors.verticalCenter: installedButton.verticalCenter
+                      spacing: Style.space(6)
+
+                      Text {
+                        text: modelData.name
+                        color: root.fg
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                      }
+
+                      Text {
+                        text: service.actionInProgress === "warm:" + modelData.name
+                          ? "warming…" : Model.formatBytes(modelData.sizeBytes)
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
                   }
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.caption
-                  horizontalPadding: Style.space(6)
-                  verticalPadding: Style.space(2)
-                  enabled: service.actionInProgress === "" &&
-                           root.status !== "missing" &&
-                           root.status !== "foreign"
-                  opacity: enabled ? 1.0 : 0.4
-                  onClicked: service.runAction("warm", modelData.name,
-                                               modelData.kind)
 
-                  // Same idiom as the bar-glyph badge in the BarIconButton
-                  // above: plain Text children painted over the clickable
-                  // surface. No MouseArea here, so click-to-load, hover, and
-                  // the tooltip all keep working straight through. Anchored
-                  // to the button's own reserved content insets so the text
-                  // lines up with where the concatenated label used to sit,
-                  // rather than flush against the border.
-                  RowLayout {
-                    anchors.left: installedButton.left
-                    anchors.leftMargin: installedButton._reservedContentLeftInset
-                    anchors.right: installedButton.right
-                    anchors.rightMargin: installedButton._reservedBorderRight +
-                                          installedButton.horizontalPadding
-                    anchors.verticalCenter: installedButton.verticalCenter
-                    spacing: Style.space(6)
+                  // Expanded parameter editor. A sibling of installedButton,
+                  // never a child -- see the comment on the root ColumnLayout
+                  // above. Hidden unless this row is the expanded one AND the
+                  // server is up: both reading the values and writing them
+                  // need the daemon, and every other control in this panel
+                  // already gates on status.
+                  ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Style.space(14)
+                    spacing: Style.space(2)
+                    visible: root.expandedModel === modelData.name &&
+                             root.status === "running"
 
-                    Text {
-                      text: modelData.name
-                      color: root.fg
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      Layout.fillWidth: true
-                      elide: Text.ElideRight
+                    Repeater {
+                      // An index-count model, not Model.PARAM_SPECS itself:
+                      // this Repeater nests inside the one iterating
+                      // installed rows, and QML's Repeater injects the same
+                      // implicit `modelData` name for every array model
+                      // regardless of nesting depth. tests/test_cross_
+                      // language.py's installed-row check greps this whole
+                      // section for `modelData.*` and cross-checks every hit
+                      // against the collector's row keys -- a spec's own
+                      // `key`/`label` would read as a phantom row field and
+                      // fail that check. Looking specs up by index sidesteps
+                      // the collision instead of fighting it.
+                      model: Model.PARAM_SPECS.length
+
+                      RowLayout {
+                        id: specRow
+                        readonly property var spec: Model.PARAM_SPECS[index]
+                        Layout.fillWidth: true
+                        spacing: Style.space(6)
+
+                        Text {
+                          text: specRow.spec.label
+                          color: root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          Layout.fillWidth: true
+                        }
+
+                        TextField {
+                          id: paramField
+                          readonly property string paramKey: specRow.spec.key
+
+                          text: service.paramEditText(root.expandedEntry, paramKey)
+                          foreground: root.fg
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          horizontalAlignment: TextInput.AlignRight
+                          implicitWidth: Style.space(70)
+
+                          onActiveFocusChanged: root.paramFieldFocused = activeFocus
+
+                          onEditingFinished: {
+                            var parsed = Model.parseParamInput(paramKey, text)
+                            if (isNaN(parsed)) {
+                              // Garbage reverts rather than being stored, so
+                              // apply can never offer to send it.
+                              text = Qt.binding(function () {
+                                return service.paramEditText(root.expandedEntry,
+                                                             paramKey)
+                              })
+                              return
+                            }
+                            service.setParamEdit(root.expandedModel, paramKey,
+                                                 String(parsed))
+                          }
+
+                          Keys.onEscapePressed: function (event) {
+                            // Revert and defocus. Does NOT close the panel --
+                            // esc inside an editor means "abandon this edit."
+                            // PanelKeyCatcher is already blocked while this
+                            // field has focus, so this handler is what fires;
+                            // event.accepted is set defensively so nothing
+                            // above it reinterprets the key regardless.
+                            text = Qt.binding(function () {
+                              return service.paramEditText(root.expandedEntry,
+                                                           paramKey)
+                            })
+                            focus = false
+                            event.accepted = true
+                          }
+                        }
+                      }
                     }
 
-                    Text {
-                      text: service.actionInProgress === "warm:" + modelData.name
-                        ? "warming…" : Model.formatBytes(modelData.sizeBytes)
-                      color: root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
+                    Button {
+                      text: "apply"
+                      foreground: root.fg
+                      tooltipText: "Rewrite this model's parameters"
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.caption
+                      horizontalPadding: Style.space(6)
+                      verticalPadding: Style.space(2)
+                      enabled: service.paramDirty(root.expandedEntry) &&
+                               service.actionInProgress === ""
+                      opacity: enabled ? 1.0 : 0.4
+                      onClicked: service.commitParams(root.expandedEntry)
                     }
                   }
                 }
