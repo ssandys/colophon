@@ -736,7 +736,15 @@ Panel {
                   // Button's own `focusable` defaults to false, so it never
                   // becomes a Tab stop between the parameter fields.
                   Button {
-                    Layout.leftMargin: Style.space(14)
+                    // No leftMargin of its own. The delegate root already
+                    // carries Style.space(14) for the whole row, and this
+                    // Button's own _reservedContentLeftInset then insets its
+                    // label by exactly what installedButton's inset is --
+                    // both use horizontalPadding: Style.space(6) -- so
+                    // "config" lands under the model name with no arithmetic.
+                    // A Style.space(14) here (what this used to have) stacked
+                    // on the root's and pushed the label 14px past the name,
+                    // which is what read as misalignment on screen.
                     text: "config"
                     foreground: root.dim
                     tooltipText: (root.expandedModel === modelData.name
@@ -757,10 +765,42 @@ Panel {
                   // already gates on status.
                   ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.leftMargin: Style.space(14)
+                    // Also no leftMargin -- see the config Button above. The
+                    // rows inside indent themselves to the button's content
+                    // inset instead, so labels, "config", "apply" and the
+                    // model name all share one left edge.
                     spacing: Style.space(2)
                     visible: root.expandedModel === modelData.name &&
                              root.status === "running"
+
+                    // Width of the label column, measured rather than guessed:
+                    // a fixed Style.space() would drift the moment a theme
+                    // changes the font, and the previous Layout.fillWidth on
+                    // each label stretched it until the value box hit the
+                    // panel's right edge -- most of the panel's width sitting
+                    // empty between "temperature" and its own value. Deriving
+                    // the widest label from PARAM_SPECS keeps this correct if a
+                    // parameter is ever added or renamed.
+                    TextMetrics {
+                      id: paramLabelMetrics
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      text: Model.PARAM_SPECS.reduce(function (widest, spec) {
+                        return spec.label.length > widest.length ? spec.label
+                                                                : widest
+                      }, "")
+                    }
+
+                    // Width of the value column. num_ctx's ceiling is the
+                    // longest thing any field can hold ("131072", 6 digits);
+                    // one extra zero of slack keeps the caret from riding the
+                    // border on a full-width entry.
+                    TextMetrics {
+                      id: paramValueMetrics
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      text: "0000000"
+                    }
 
                     Repeater {
                       // An index-count model, not Model.PARAM_SPECS itself:
@@ -780,6 +820,15 @@ Panel {
                         id: specRow
                         readonly property var spec: Model.PARAM_SPECS[index]
                         Layout.fillWidth: true
+                        // Indents the label/value pair to exactly where
+                        // installedButton paints the model name -- the same
+                        // anchor the name/size row above uses. Per trap 29
+                        // this is a private upstream property: if it ever
+                        // disappears the margin resolves to 0 and these rows
+                        // go flush with the button's border instead of lining
+                        // up under the name. Cosmetic, not a crash.
+                        Layout.leftMargin:
+                          installedButton._reservedContentLeftInset
                         spacing: Style.space(6)
 
                         Text {
@@ -787,7 +836,13 @@ Panel {
                           color: root.dim
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.caption
-                          Layout.fillWidth: true
+                          // A measured column, not fillWidth. fillWidth kept
+                          // the value boxes in a straight column too, but only
+                          // by stretching each label until its own value sat
+                          // against the panel's right edge. Pinning the label
+                          // width instead keeps that column straight AND lets
+                          // the value sit beside its label.
+                          Layout.preferredWidth: paramLabelMetrics.width
                         }
 
                         TextField {
@@ -799,10 +854,41 @@ Panel {
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.caption
                           horizontalAlignment: TextInput.AlignRight
-                          implicitWidth: Style.space(70)
+                          // TextField's own header comment: "the default 30px
+                          // implicitHeight fits dialog forms; inline callers
+                          // (wifi's row-embedded passphrase prompt) drop
+                          // verticalPadding to match a 22-26px row." This is
+                          // an inline caller and was using the dialog default,
+                          // which is why four fields cost ~190px of a list
+                          // capped at Style.space(190). controlGap/xs land it
+                          // at the bottom of that documented range.
+                          horizontalPadding: Style.spacing.controlGap
+                          verticalPadding: Style.spacing.xs
+                          implicitWidth: paramValueMetrics.width +
+                                         horizontalPadding * 2 + Style.space(4)
 
-                          onActiveFocusChanged: root.paramFieldsFocused +=
-                                                  activeFocus ? 1 : -1
+                          // Qt does NOT clear activeFocus when an item is
+                          // hidden -- verified by headless qml6 probe, three
+                          // deterministic runs. Without this, collapsing a row
+                          // while a field held focus left activeFocus stuck
+                          // true with no signal, so the counter below never
+                          // decremented; re-expanding then read
+                          // paramFieldsFocused === 0 while a field really did
+                          // have focus, and PanelKeyCatcher stole k/j/h/l,
+                          // Enter and r straight back -- the exact bug PR #6
+                          // shipped. Releasing focus here fires the -1.
+                          onVisibleChanged: if (!visible && activeFocus)
+                                              focus = false
+
+                          // Clamped at zero: two fields handing focus over
+                          // directly fire their signals in either order, and
+                          // onExpandedModelChanged also resets to 0, so an
+                          // unclamped -= could strand the counter negative --
+                          // permanently below the `> 0` that blocks the key
+                          // catcher. Clamping fails toward blocking.
+                          onActiveFocusChanged: root.paramFieldsFocused =
+                            Math.max(0, root.paramFieldsFocused +
+                                        (activeFocus ? 1 : -1))
 
                           onEditingFinished: {
                             var parsed = Model.parseParamInput(paramKey, text)
@@ -833,6 +919,13 @@ Panel {
                             focus = false
                             event.accepted = true
                           }
+                        }
+
+                        // Absorbs the leftover width so the label/value pair
+                        // stays a tight unit on the left rather than being
+                        // stretched apart across the panel.
+                        Item {
+                          Layout.fillWidth: true
                         }
                       }
                     }
