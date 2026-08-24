@@ -19,6 +19,11 @@ FIXTURES = os.path.join(ROOT, "tests", "fixtures")
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 
 import colophon_collect as collect
+# Imported under a distinct name: a test further down in this file already
+# binds the bare name `action` to file text (read("scripts",
+# "colophon_action.py")), and `action` here would silently shadow that local
+# rather than erroring -- see UnitNameTest.
+import colophon_action as action_mod
 
 
 def read(*parts):
@@ -292,6 +297,72 @@ class ShowPropertyTest(unittest.TestCase):
                 uses = len(re.findall(r'"' + prop + r'"', source))
                 self.assertGreaterEqual(
                     uses, 2, prop + " is requested but never read")
+
+
+class ParamSpecTest(unittest.TestCase):
+    """The four parameters and their bounds live in three files. A one-sided
+    edit fails silently: the panel would clamp to one range while the script
+    refused another, and the user would see a field that will not commit with
+    no error explaining why. See AGENTS.md trap #12.
+    """
+
+    KEYS = ["num_ctx", "temperature", "top_p", "top_k"]
+
+    def test_the_parameter_set_agrees_across_all_three_surfaces(self):
+        # Comments stripped first, as ModelJsSyntaxTest.code_only does for its
+        # own assertions: these very numbers are discussed in Model.js's
+        # comments, and a match found only in prose must not satisfy this.
+        model_js = ModelJsSyntaxTest.code_only(read("Model.js"))
+        # Order matters in Model.js: PARAM_SPECS drives display order.
+        found = re.findall(r'\{\s*key:\s*"([a-z_]+)"', model_js)
+        self.assertEqual(found, self.KEYS,
+                         "Model.PARAM_SPECS must list exactly these four, in "
+                         "this order")
+        self.assertEqual(sorted(action_mod.PARAM_BOUNDS), sorted(self.KEYS),
+                         "colophon_action.PARAM_BOUNDS must cover the same "
+                         "set")
+
+    def test_the_bounds_agree_between_javascript_and_python(self):
+        model_js = ModelJsSyntaxTest.code_only(read("Model.js"))
+        for key, (low, high, _is_int) in action_mod.PARAM_BOUNDS.items():
+            spec = re.search(
+                r'key:\s*"' + re.escape(key) + r'",\s*label:[^,]+,\s*'
+                r'min:\s*([0-9.]+),\s*max:\s*([0-9.]+)', model_js)
+            self.assertIsNotNone(
+                spec, "no min/max found for " + key + " in Model.js")
+            self.assertEqual(float(spec.group(1)), float(low), key)
+            self.assertEqual(float(spec.group(2)), float(high), key)
+
+    def test_panel_qml_hardcodes_no_bound(self):
+        # PR #6's equivalent guard omitted Panel.qml, so a hardcoded clamp
+        # drifted from Model.js with the whole suite green. ColorPaletteTest
+        # reads Panel.qml for exactly this reason.
+        #
+        # Comments stripped first -- QML uses the same // and /* */ syntax as
+        # Model.js, so ModelJsSyntaxTest.code_only works unchanged. Without
+        # this, Panel.qml's own comment sizing the num_ctx text field ("the
+        # longest thing any field can hold (\"131072\", 6 digits)") would
+        # trip this guard on prose, not code.
+        panel = ModelJsSyntaxTest.code_only(read("Panel.qml"))
+        for key, (low, high, _is_int) in action_mod.PARAM_BOUNDS.items():
+            for bound in (low, high):
+                # 0, 1, and 2 are ordinary QML literals (margins, opacity,
+                # Style.space multipliers) that appear throughout Panel.qml
+                # for reasons that have nothing to do with these parameters.
+                # Asserting on them would be either vacuously true or wrong
+                # the moment an unrelated "2" is added nearby, so only
+                # num_ctx's bounds and top_k's 200 are checked here.
+                if bound in (0, 0.0, 1, 1.0, 2, 2.0):
+                    continue
+                self.assertNotIn(
+                    str(bound), panel,
+                    "Panel.qml must not hardcode " + key + "'s bound "
+                    + str(bound) + " -- bind to Model.PARAM_SPECS instead")
+
+    def test_the_collector_surfaces_exactly_these_parameters(self):
+        self.assertEqual(sorted(collect.EDITABLE_PARAMS), sorted(self.KEYS),
+                         "the collector's filter must match the editable "
+                         "set")
 
 
 def node_binary():
