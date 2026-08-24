@@ -77,6 +77,12 @@ SHOW_PROPERTIES = (
 # target machine: nomic-embed-text reports model_family "nomic-bert".
 EMBED_FAMILIES = ("bert", "nomic-bert", "xlm-roberta")
 
+# The four parameters the panel's editor owns. Ollama stores every parameter in
+# one layer, so the filter is here rather than in the reader: a `stop` list or a
+# `mirostat` int must not reach a panel that has no idiom for them.
+EDITABLE_PARAMS = ("num_ctx", "temperature", "top_p", "top_k")
+PARAMS_MEDIA_TYPE = "application/vnd.ollama.image.params"
+
 _FRACTION_RE = re.compile(r"\.(\d+)")
 
 
@@ -295,6 +301,20 @@ def scan_installed(root):
         blob = blob or {}
         family = blob.get("model_family") or ""
 
+        parameters = {}
+        for layer in layers:
+            if not isinstance(layer, dict):
+                continue
+            if layer.get("mediaType") != PARAMS_MEDIA_TYPE:
+                continue
+            raw = _read_json(os.path.join(
+                root, "blobs", str(layer.get("digest", "")).replace(":", "-")))
+            if not isinstance(raw, dict):
+                continue
+            for key in EDITABLE_PARAMS:
+                if key in raw and isinstance(raw[key], (int, float)):
+                    parameters[key] = raw[key]
+
         try:
             modified = int(os.path.getmtime(path))
         except OSError:
@@ -307,6 +327,7 @@ def scan_installed(root):
             "parameterSize": blob.get("model_type") or "",
             "quantization": blob.get("file_type") or "",
             "kind": model_kind(family),
+            "parameters": parameters,
             "modifiedAt": modified,
         })
 
