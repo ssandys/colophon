@@ -65,7 +65,13 @@ editor that shows the current value can.
 
 ## Scope
 
-**In:** four editable scalars — `num_ctx`, `temperature`, `top_p`, `top_k` —
+> **Amended 2026-08-24, after the editor was seen running.** The parameter set
+> below was narrowed from four scalars to two — `num_ctx` and `temperature` —
+> and the rationale in this section turned out to be wrong. See
+> [Amendment: two parameters, explained](#amendment-2026-08-24--two-parameters-explained)
+> at the end of this document, which supersedes the paragraph immediately below.
+
+**In:** ~~four~~ editable scalars — `num_ctx`, `temperature`, ~~`top_p`, `top_k`~~ —
 plus a read-only count of `stop` sequences. Chosen because they are exactly the
 parameters models on this machine actually set, so a model you open shows
 populated fields rather than blanks.
@@ -233,3 +239,68 @@ here.
   Colophon appears after the next poll rather than immediately.
 - **`stop` sequences are shown but not editable**, and template, system message
   and license are not shown at all.
+
+## Amendment 2026-08-24 — two parameters, explained
+
+The four-parameter set shipped, was deployed, and was rejected by the owner on
+sight: *"the ui is difficult here... there are options that don't apply... it's
+not clear what are valid values it would also be useful to give an indication of
+what each parameter does. we may want to scope config to temp and context
+window."*
+
+### The rationale above was measurably wrong
+
+Scope claimed the four were "exactly the parameters models on this machine
+actually set, so a model you open shows populated fields rather than blanks."
+Measured against all 11 installed models on the target machine:
+
+| | declares `num_ctx` | `temperature` | `top_p` | `top_k` | declares nothing |
+|---|---|---|---|---|---|
+| 10 `generate` models | **0** | 6 | 5 | 4 | 4 |
+| 1 `embed` model | 1 | meaningless | meaningless | meaningless | — |
+
+The Verified table's fifth row counted parameters *across* the store and read
+that as coverage. What matters is what a single opened model shows, and there
+the answer is mostly blanks. Worse, the one parameter the feature exists for —
+`num_ctx`, because a client on Ollama's OpenAI `/v1` endpoint cannot ask for a
+context size — is declared by **no generative model at all**. The blank field
+was the main case, not an edge case, and the design had no answer for it.
+
+This is a specific reasoning error worth naming: an aggregate over a collection
+was used to predict a property of one member. The same table would have
+justified adding `stop`, which is set on three models and useless to edit here.
+
+### What changed
+
+- **`num_ctx` and `temperature` only.** `top_p` and `top_k` are never set alone
+  on this store — always alongside `temperature`, as an author-tuned set.
+  Exposing half of a sampling pair in a bar widget invites making output worse.
+  This spec had already argued that "setting one without the other is often
+  meaningless" and drew only the conclusion that commits should be batched; the
+  stronger conclusion was available and was missed.
+- **An unset field shows its valid range as placeholder text** — `4096–131072`,
+  `0–2`. This answers "what values are valid" and repairs the empty box, which
+  read as a failed load rather than as "not set".
+- **A dim caption under each field says what the parameter does.** Deliberately
+  not a tooltip: the owner had already overruled a right-click trigger on the
+  grounds that an invisible affordance has no discovery, and a tooltip would
+  repeat that mistake. Cutting two parameters is what pays for the vertical
+  space the captions need — the editor is shorter than the four-field version it
+  replaces.
+- **Parameters that do not apply to a model's kind are hidden, not disabled.**
+  Every installed row already carries `kind` (`generate` or `embed`) from the
+  collector's `EMBED_FAMILIES`, so this needs no new data. `nomic-embed-text`
+  shows `context` and nothing else.
+
+### Consequences elsewhere in this document
+
+- **Testing** — the cross-language guard now pins two names, and only
+  `num_ctx`'s bounds survive as assertable literals against `Panel.qml`;
+  temperature's `0` and `2` are too common in QML to assert on. The guard is not
+  airtight and its tests now say so.
+- **Known limitations** — one is added: `131072` is a fixed ceiling, but a model
+  trained at 8192 will accept a larger window and quietly degrade. The real
+  trained maximum lives in GGUF metadata the manifest tree does not carry, so
+  Colophon cannot warn about it.
+- **Relationship to PR #6** — unchanged. PR #6 stays open with changes
+  requested until this lands, then closes with a pointer here.
