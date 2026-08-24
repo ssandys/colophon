@@ -71,8 +71,8 @@ editor that shows the current value can.
 > [Amendment: two parameters, explained](#amendment-2026-08-24--two-parameters-explained)
 > at the end of this document, which supersedes the paragraph immediately below.
 
-**In:** ~~four~~ editable scalars — `num_ctx`, `temperature`, ~~`top_p`, `top_k`~~ —
-plus a read-only count of `stop` sequences. Chosen because they are exactly the
+**In:** ~~four~~ editable scalars — `num_ctx`, `temperature`, ~~`top_p`, `top_k`~~
+~~plus a read-only count of `stop` sequences~~. Chosen because they are exactly the
 parameters models on this machine actually set, so a model you open shows
 populated fields rather than blanks.
 
@@ -83,8 +83,11 @@ populated fields rather than blanks.
   widget should paginate. `ollama show llama3.2:3b --template` is the right tool.
   This narrows "inspect" from `ollama show`'s full surface to its parameters, and
   it is what lets the editor live inline instead of requiring a detail screen.
-- **`stop` sequence editing.** It is a list, not a scalar, and the panel has no
-  list-editing idiom. Shown as a count.
+- **`stop` sequences entirely** — not editable, and not counted either. A list
+  is not a scalar and the panel has no list-editing idiom; the count that was
+  once promised here was dropped on 2026-08-24 (see the amendment) because it
+  would be absent on most models and would need the same "unset" treatment the
+  scalars got, for no decision anyone makes from it.
 - **Any global default, and any sweep over multiple models.** A newly pulled
   model keeps whatever it ships with until you open it. This is an accepted gap,
   stated in Known limitations, and it is the single largest difference from PR #6.
@@ -237,8 +240,9 @@ here.
   section is hidden otherwise.
 - **Parameters are read from the manifest tree**, so a change made outside
   Colophon appears after the next poll rather than immediately.
-- **`stop` sequences are shown but not editable**, and template, system message
-  and license are not shown at all.
+- **`stop` sequences are not shown at all**, nor are template, system message
+  and license. `ollama show MODEL --parameters` lists everything a model
+  declares, including the parameters this editor does not own.
 
 ## Amendment 2026-08-24 — two parameters, explained
 
@@ -304,3 +308,32 @@ justified adding `stop`, which is set on three models and useless to edit here.
   Colophon cannot warn about it.
 - **Relationship to PR #6** — unchanged. PR #6 stays open with changes
   requested until this lands, then closes with a pointer here.
+
+### Amendment 2026-08-24b — the `stop` count is dropped
+
+This document promised a read-only count of `stop` sequences in three places
+(Scope's "In", the `stop`-editing exclusion, and Known limitations). **It was
+never built**, and it has now been removed from the spec rather than added to
+the panel, on the owner's decision.
+
+Why removing was right rather than building: `stop` never reaches the snapshot
+at all. `EDITABLE_PARAMS` filters the params layer down to editable scalars
+before anything leaves the collector, so the count had no data source to render
+from — building it meant a new field in the collector, a new key in every
+fixture, and a new row in the guard. Against that, the value was low: of the
+eleven models on the target machine only three declare `stop`, so the row would
+have shown "0" or nothing at all on the large majority, needing the same "unset"
+treatment the scalars needed, in service of a number nobody makes a decision
+from. `ollama show MODEL --parameters` prints the real list, and that is the
+right tool for it.
+
+**How it survived, which matters more than the item itself.** It got through six
+implementation tasks, five task reviews, and the controller's own pre-flight
+plan scan — whose stated purpose is checking the plan against the spec. That
+scan compared tasks against each other and against the plan's own text. It never
+walked the spec's Scope section item by item asking "which task builds this
+one?" A scan that only cross-checks tasks can only find disagreements between
+tasks; a requirement that no task mentions at all is invisible to it, because
+nothing contradicts it. Any future plan scan against this spec should start by
+enumerating Scope and mapping each item to a task, and should treat an unmapped
+item as a finding rather than as silence.
