@@ -245,6 +245,80 @@ class ArgumentTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class SetParamsTest(unittest.TestCase):
+    def test_the_body_names_the_model_as_its_own_base(self):
+        # from == model is how Ollama re-stamps a definition in place. Verified
+        # additive on the target machine: template, system message, stop
+        # sequences and an existing temperature all survive.
+        body = action.create_body("llama3.2:3b", {"num_ctx": 16384})
+        self.assertEqual(body["model"], "llama3.2:3b")
+        self.assertEqual(body["from"], "llama3.2:3b")
+        self.assertEqual(body["parameters"], {"num_ctx": 16384})
+
+    def test_every_parameter_has_bounds_and_a_type(self):
+        self.assertEqual(sorted(action.PARAM_BOUNDS),
+                         ["num_ctx", "temperature", "top_k", "top_p"])
+        for key, (low, high, is_int) in action.PARAM_BOUNDS.items():
+            self.assertLess(low, high, key)
+            self.assertIsInstance(is_int, bool, key)
+
+    def test_a_value_out_of_range_is_refused(self):
+        for args in (["set-params", "llama3.2:3b", "--param", "num_ctx=1"],
+                     ["set-params", "llama3.2:3b", "--param", "num_ctx=999999"],
+                     ["set-params", "llama3.2:3b", "--param", "temperature=9"],
+                     ["set-params", "llama3.2:3b", "--param", "top_p=2"],
+                     ["set-params", "llama3.2:3b", "--param", "top_k=0"]):
+            with self.subTest(args=args):
+                result = run(args + ["--dry-run"])
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("must be between", result.stderr)
+
+    def test_an_unknown_parameter_is_refused(self):
+        # The editor owns four keys. Accepting a fifth here would let the write
+        # surface drift from the panel and from Model.PARAM_SPECS.
+        result = run(["set-params", "llama3.2:3b",
+                      "--param", "mirostat=2", "--dry-run"])
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("unknown parameter", result.stderr)
+
+    def test_a_malformed_param_argument_is_refused(self):
+        for bad in ("num_ctx", "num_ctx=", "=8192", "num_ctx=banana"):
+            with self.subTest(bad=bad):
+                result = run(["set-params", "llama3.2:3b",
+                              "--param", bad, "--dry-run"])
+                self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_an_integer_parameter_refuses_a_decimal(self):
+        # Model.js truncates before it gets here; if a decimal still arrives it
+        # is a bug upstream, and silently rounding would hide it.
+        result = run(["set-params", "llama3.2:3b",
+                      "--param", "num_ctx=8192.5", "--dry-run"])
+        self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_a_suspicious_model_name_is_refused(self):
+        # set-params lands in PARAM_VERBS, not MODEL_VERBS, so this exercises
+        # the widened gate at colophon_action.py:263. That block's convention
+        # is 2 for a bad argument or flag, 3 for a bad target -- both
+        # `return 3` sites live in the one block this reaches -- so this
+        # expects 3, not the 2 a bad --param value gets.
+        result = run(["set-params", "../../etc/passwd\n",
+                      "--param", "num_ctx=8192", "--dry-run"])
+        self.assertEqual(result.returncode, 3, result.stderr)
+
+    def test_dry_run_prints_the_create_and_touches_nothing(self):
+        result = run(["set-params", "llama3.2:3b", "--param", "num_ctx=16384",
+                      "--param", "temperature=0.42", "--dry-run"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("/api/create", result.stdout)
+        self.assertIn("num_ctx", result.stdout)
+        self.assertIn("16384", result.stdout)
+        self.assertIn("temperature", result.stdout)
+
+    def test_set_params_requires_at_least_one_param(self):
+        result = run(["set-params", "llama3.2:3b", "--dry-run"])
+        self.assertEqual(result.returncode, 2, result.stderr)
+
+
 class PostJsonTest(unittest.TestCase):
     def test_a_truncated_error_body_does_not_raise(self):
         # A server that closes mid error-body raises http.client.IncompleteRead
