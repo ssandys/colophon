@@ -160,6 +160,77 @@ function bootIsToggleable(unitFileState) {
   return state === "enabled" || state === "disabled"
 }
 
+// The four parameters the panel's editor owns, in display order. Bounds are
+// mirrored in colophon_action.py, which is the only surface that writes, and
+// tests/test_cross_language.py asserts the two agree along with Panel.qml --
+// a one-sided edit here fails silently otherwise. See AGENTS.md trap #12.
+var PARAM_SPECS = [
+  { key: "num_ctx", label: "context", min: 4096, max: 131072,
+    step: 1, decimals: 0 },
+  { key: "temperature", label: "temperature", min: 0, max: 2,
+    step: 0.01, decimals: 2 },
+  { key: "top_p", label: "top_p", min: 0, max: 1,
+    step: 0.01, decimals: 2 },
+  { key: "top_k", label: "top_k", min: 1, max: 200,
+    step: 1, decimals: 0 }]
+
+function paramSpec(key) {
+  for (var i = 0; i < PARAM_SPECS.length; i++)
+    if (PARAM_SPECS[i].key === key) return PARAM_SPECS[i]
+  return null
+}
+
+function paramValue(entry, key) {
+  if (!entry || !entry.parameters) return null
+  var raw = entry.parameters[key]
+  if (typeof raw !== "number" || !isFinite(raw)) return null
+  return raw
+}
+
+function formatParamValue(key, value) {
+  if (value === null || value === undefined) return ""
+  var spec = paramSpec(key)
+  if (!spec) return ""
+  var number = Number(value)
+  if (!isFinite(number)) return ""
+  // toFixed then strip trailing zeros, so 0.60 reads as 0.6 while 0.95 keeps
+  // both digits. A fixed 2dp would render every context as "8192.00".
+  if (spec.decimals === 0) return String(Math.round(number))
+  var text = number.toFixed(spec.decimals)
+  while (text.indexOf(".") >= 0 &&
+         (text.charAt(text.length - 1) === "0" ||
+          text.charAt(text.length - 1) === "."))
+    text = text.substring(0, text.length - 1)
+  return text
+}
+
+function parseParamInput(key, text) {
+  var spec = paramSpec(key)
+  if (!spec) return NaN
+  var trimmed = String(text === undefined || text === null ? "" : text).trim()
+  if (trimmed === "") return NaN
+  var number = Number(trimmed)
+  if (!isFinite(number)) return NaN
+  // Not Math.trunc: it is ES6, and ModelJsSyntaxTest is a regex list that
+  // could not catch it if the QML engine choked. Nothing here tests that
+  // engine, so use the form that has always worked.
+  if (spec.decimals === 0)
+    number = number < 0 ? Math.ceil(number) : Math.floor(number)
+  // Clamp rather than reject: a typed 999999 is an unambiguous intent to go as
+  // high as allowed, and rejecting it would just revert the field silently.
+  return Math.max(spec.min, Math.min(spec.max, number))
+}
+
+function paramIsDirty(entry, key, text) {
+  var typed = parseParamInput(key, text)
+  var current = paramValue(entry, key)
+  // Garbage never counts as a change: the field reverts, so apply must not
+  // offer to send a value that cannot exist.
+  if (isNaN(typed)) return false
+  if (current === null) return true
+  return typed !== current
+}
+
 function formatBytes(bytes) {
   // SI, base 1000, matching `ollama list`. See the plan's deviations note.
   var value = Number(bytes)
@@ -319,6 +390,11 @@ if (typeof module !== "undefined") {
     statusLabel: statusLabel,
     bootLabel: bootLabel,
     bootIsToggleable: bootIsToggleable,
+    PARAM_SPECS: PARAM_SPECS,
+    paramValue: paramValue,
+    formatParamValue: formatParamValue,
+    parseParamInput: parseParamInput,
+    paramIsDirty: paramIsDirty,
     formatBytes: formatBytes,
     formatDuration: formatDuration,
     formatCountdown: formatCountdown,
