@@ -971,17 +971,44 @@ Panel {
                             Math.max(0, root.paramFieldsFocused +
                                         (activeFocus ? 1 : -1))
 
+                          // Records the edit as it is typed, and this is
+                          // load-bearing rather than eager. `text` above is a
+                          // live binding on the snapshot, and typing does NOT
+                          // break a QML binding the way an imperative
+                          // assignment does -- verified by probe, three runs.
+                          // So with the panel polling every couple of seconds
+                          // while open, the next snapshot re-evaluated that
+                          // binding and wiped whatever was half-typed, usually
+                          // within two seconds. The spec's own rule is that a
+                          // refresh must never overwrite in-progress intent;
+                          // routing each keystroke into the bridge is what
+                          // makes the binding resolve to the edit instead of
+                          // to the model, so a poll now re-renders the same
+                          // characters rather than replacing them.
+                          //
+                          // textEdited fires only for user edits, never for
+                          // programmatic ones, so this cannot recurse.
+                          onTextEdited: service.setParamEdit(root.expandedModel,
+                                                             paramKey, text)
+
                           onEditingFinished: {
                             var parsed = Model.parseParamInput(paramKey, text)
                             if (isNaN(parsed)) {
-                              // Garbage reverts rather than being stored, so
-                              // apply can never offer to send it.
-                              text = Qt.binding(function () {
-                                return service.paramEditText(root.expandedEntry,
-                                                             paramKey)
-                              })
+                              // Garbage is dropped rather than kept, so apply
+                              // can never offer to send it. Clearing the edit
+                              // is the revert -- the live binding then
+                              // resolves back to what the model declares.
+                              service.clearParamEdit(root.expandedModel,
+                                                     paramKey)
                               return
                             }
+                            // Stores the PARSED value, so a clamp is visible:
+                            // type 5 into temperature and the field settles to
+                            // 2, which is what apply would send. While `text`
+                            // was assigned imperatively this could not work --
+                            // the display kept the typed 5 while the pending
+                            // edit was 2, and apply silently sent the number
+                            // nobody saw.
                             service.setParamEdit(root.expandedModel, paramKey,
                                                  String(parsed))
                           }
@@ -993,10 +1020,16 @@ Panel {
                             // field has focus, so this handler is what fires;
                             // event.accepted is set defensively so nothing
                             // above it reinterprets the key regardless.
-                            text = Qt.binding(function () {
-                              return service.paramEditText(root.expandedEntry,
-                                                           paramKey)
-                            })
+                            //
+                            // Dropping the edit IS the revert. This used to
+                            // reassign `text` to a fresh Qt.binding, which was
+                            // only ever needed because typing was assumed to
+                            // have broken the binding -- it does not. Nothing
+                            // in this field assigns `text` imperatively now,
+                            // so the binding lives for the field's whole life
+                            // and reverting is purely a matter of removing
+                            // what it resolves through.
+                            service.clearParamEdit(root.expandedModel, paramKey)
                             focus = false
                             event.accepted = true
                           }

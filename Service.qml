@@ -188,6 +188,20 @@ Item {
     root.paramEdits = next
   }
 
+  // Drops one pending edit so paramEditText falls back to what the model
+  // actually declares. This is how a field reverts now: the panel never
+  // assigns TextField.text imperatively, so its binding stays live for the
+  // field's whole life, and removing the edit is what the binding then
+  // resolves through. Reassigns for the same notification reason as above.
+  function clearParamEdit(model, key) {
+    var k = root.paramEditKey(model, key)
+    if (!root.paramEdits.hasOwnProperty(k)) return
+    var next = {}
+    for (var existing in root.paramEdits)
+      if (existing !== k) next[existing] = root.paramEdits[existing]
+    root.paramEdits = next
+  }
+
   function paramDirty(entry) {
     if (!entry) return false
     for (var i = 0; i < Model.PARAM_SPECS.length; i++) {
