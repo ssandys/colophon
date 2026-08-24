@@ -47,6 +47,23 @@ Item {
   // Do not unify these clearing rules "for consistency": that is the bug
   // trap #19 exists to prevent.
   property string optimisticBootState: ""
+
+  // Typed-but-unapplied parameter edits, keyed "<model>|<param>". A plain
+  // object, not a ListModel: it is read by binding and never iterated in QML.
+  //
+  // Clears differently from every other bridge state here, deliberately. See
+  // AGENTS.md trap #19: optimisticStatus and optimisticBootState fail safe
+  // toward reality because a wrong value costs a flicker. This one fails safe
+  // toward KEEPING the edit, because clearing early discards typing the user
+  // cannot get back by waiting. It is never cleared by a poll -- only by a
+  // successful apply, and then only for that model.
+  property var paramEdits: ({})
+  // The model name a set-params action is currently in flight for, so the
+  // exit handler knows whose edits to clear on success. Cleared unconditionally
+  // after every action exits, so a failed apply cannot leave it set and poison
+  // the next unrelated action's exit handling.
+  property string pendingParamModel: ""
+
   readonly property string effectiveStatus:
     root.optimisticStatus !== "" ? root.optimisticStatus : root.status
 
@@ -153,7 +170,52 @@ Item {
     if (reason !== "") root.serviceDied(reason)
   }
 
-  function runAction(verb, target, kind) {
+  function paramEditKey(model, key) { return String(model) + "|" + String(key) }
+
+  function paramEditText(entry, key) {
+    if (!entry) return ""
+    var k = root.paramEditKey(entry.name, key)
+    if (root.paramEdits.hasOwnProperty(k)) return root.paramEdits[k]
+    return Model.formatParamValue(key, Model.paramValue(entry, key))
+  }
+
+  function setParamEdit(model, key, text) {
+    // Reassign rather than mutate: QML property-change notification on a var
+    // does not fire for an in-place key write, so bindings would go stale.
+    var next = {}
+    for (var existing in root.paramEdits) next[existing] = root.paramEdits[existing]
+    next[root.paramEditKey(model, key)] = String(text)
+    root.paramEdits = next
+  }
+
+  function paramDirty(entry) {
+    if (!entry) return false
+    for (var i = 0; i < Model.PARAM_SPECS.length; i++) {
+      var key = Model.PARAM_SPECS[i].key
+      if (Model.paramIsDirty(entry, key, root.paramEditText(entry, key)))
+        return true
+    }
+    return false
+  }
+
+  function commitParams(entry) {
+    if (!entry || root.actionInProgress !== "") return
+    var args = []
+    for (var i = 0; i < Model.PARAM_SPECS.length; i++) {
+      var key = Model.PARAM_SPECS[i].key
+      var text = root.paramEditText(entry, key)
+      if (!Model.paramIsDirty(entry, key, text)) continue
+      var value = Model.parseParamInput(key, text)
+      if (isNaN(value)) continue
+      args.push("--param")
+      args.push(key + "=" + value)
+    }
+    if (args.length === 0) return
+    root.pendingParamModel = entry.name
+    root.runAction("set-params", entry.name, "", args)
+  }
+
+  function runAction(verb, target, kind, extraArgs) {
     if (root.actionInProgress !== "") return
     root.actionInProgress = target ? (verb + ":" + target) : verb
     root.actionError = ""
@@ -177,6 +239,7 @@ Item {
     var args = ["python3", root.actionPath, verb]
     if (target) args.push(target)
     args.push("--api-base", root.apiBase)
+    if (extraArgs) for (var j = 0; j < extraArgs.length; j++) args.push(extraArgs[j])
     if (verb === "warm") args.push("--keep-alive", String(root.keepAliveMinutes))
     if (kind) args.push("--kind", kind)
     actionProc.command = args
@@ -322,6 +385,19 @@ Item {
         root.expectedStop = false
       }
       root.actionInProgress = ""
+
+      // Only on success, and only for the model that was applied. A failed
+      // apply keeps the edits so the user can correct and retry rather than
+      // retyping.
+      if (root.pendingParamModel !== "" && root.actionError === "") {
+        var next = {}
+        var prefix = root.pendingParamModel + "|"
+        for (var k in root.paramEdits)
+          if (k.indexOf(prefix) !== 0) next[k] = root.paramEdits[k]
+        root.paramEdits = next
+      }
+      root.pendingParamModel = ""
+
       settleTimer.ticks = 0
       settleTimer.running = true
       Qt.callLater(root.refresh)
