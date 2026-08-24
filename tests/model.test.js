@@ -356,33 +356,63 @@ test("Model.js holds no state between calls", () => {
   assert.equal(Model.tooltipText(RUNNING, 1786726840), first)
 })
 
-test("PARAM_SPECS covers exactly the four editable parameters, in order", () => {
+test("PARAM_SPECS covers exactly the two editable parameters, in order", () => {
   assert.deepEqual(Model.PARAM_SPECS.map(s => s.key),
-                   ["num_ctx", "temperature", "top_p", "top_k"])
+                   ["num_ctx", "temperature"])
   for (const spec of Model.PARAM_SPECS) {
     assert.ok(spec.label.length > 0, spec.key)
     assert.ok(spec.max > spec.min, spec.key)
     assert.equal(typeof spec.decimals, "number", spec.key)
+    assert.ok(Array.isArray(spec.kinds) && spec.kinds.length > 0, spec.key)
+    assert.ok(spec.description.length > 0, spec.key)
   }
 })
 
+test("paramSpecsFor filters by kind, in PARAM_SPECS order", () => {
+  assert.deepEqual(Model.paramSpecsFor("generate").map(s => s.key),
+                   ["num_ctx", "temperature"])
+  // embed models can set a context window, but temperature is meaningless for
+  // them -- this pins the owner's "hide what doesn't apply" decision.
+  assert.deepEqual(Model.paramSpecsFor("embed").map(s => s.key), ["num_ctx"])
+})
+
+test("paramSpecsFor returns nothing for an unknown or empty kind", () => {
+  // A row whose kind the collector could not classify must not offer edits
+  // it cannot justify.
+  assert.deepEqual(Model.paramSpecsFor(""), [])
+  assert.deepEqual(Model.paramSpecsFor("nonsense"), [])
+})
+
+test("paramSpecsFor returns a fresh array, not PARAM_SPECS itself", () => {
+  const specs = Model.paramSpecsFor("generate")
+  specs.push({ key: "bogus" })
+  assert.deepEqual(Model.paramSpecsFor("generate").map(s => s.key),
+                   ["num_ctx", "temperature"])
+})
+
+test("formatParamRange renders trimmed bounds, empty for an unknown key", () => {
+  assert.equal(Model.formatParamRange("num_ctx"), "4096–131072")
+  assert.equal(Model.formatParamRange("temperature"), "0–2")
+  assert.equal(Model.formatParamRange("nope"), "")
+})
+
 test("paramValue reads a declared parameter and reports absence as null", () => {
-  const entry = { name: "m", parameters: { num_ctx: 8192, temperature: 0.6 } }
+  const entry = { name: "m", parameters: { num_ctx: 8192 } }
   assert.equal(Model.paramValue(entry, "num_ctx"), 8192)
-  assert.equal(Model.paramValue(entry, "temperature"), 0.6)
   // Absent is null, never 0 -- a field showing 0 would claim the model
   // declares a value it does not.
-  assert.equal(Model.paramValue(entry, "top_p"), null)
-  assert.equal(Model.paramValue({ name: "m", parameters: {} }, "top_k"), null)
-  assert.equal(Model.paramValue({ name: "m" }, "top_k"), null)
-  assert.equal(Model.paramValue(null, "top_k"), null)
+  assert.equal(Model.paramValue(entry, "temperature"), null)
+  assert.equal(Model.paramValue({ name: "m", parameters: {} }, "temperature"),
+               null)
+  assert.equal(Model.paramValue({ name: "m" }, "temperature"), null)
+  assert.equal(Model.paramValue(null, "temperature"), null)
 })
 
 test("formatParamValue renders integers and decimals per spec", () => {
   assert.equal(Model.formatParamValue("num_ctx", 8192), "8192")
-  assert.equal(Model.formatParamValue("top_k", 40), "40")
   assert.equal(Model.formatParamValue("temperature", 0.6), "0.6")
-  assert.equal(Model.formatParamValue("top_p", 0.95), "0.95")
+  // A whole-number decimal trims to look like an integer, not "2.00".
+  assert.equal(Model.formatParamValue("temperature", 2), "2")
   // An absent value renders empty, so the field reads as "not set" rather than
   // as a number the model does not declare.
   assert.equal(Model.formatParamValue("num_ctx", null), "")
@@ -396,10 +426,9 @@ test("parseParamInput clamps in range and rejects nonsense", () => {
   assert.equal(Model.parseParamInput("num_ctx", "999999"), 131072)
   assert.equal(Model.parseParamInput("num_ctx", "1"), 4096)
   assert.equal(Model.parseParamInput("temperature", "-3"), 0)
-  // num_ctx and top_k are integers; a typed decimal truncates rather than
-  // reaching the API as a float it would reject.
+  // num_ctx is an integer; a typed decimal truncates rather than reaching
+  // the API as a float it would reject.
   assert.equal(Model.parseParamInput("num_ctx", "8192.7"), 8192)
-  assert.equal(Model.parseParamInput("top_k", "40.9"), 40)
   // Garbage is NaN so the caller can revert the field.
   assert.ok(Number.isNaN(Model.parseParamInput("num_ctx", "banana")))
   assert.ok(Number.isNaN(Model.parseParamInput("num_ctx", "")))
@@ -412,9 +441,9 @@ test("paramIsDirty compares typed text against the model's declared value", () =
   assert.equal(Model.paramIsDirty(entry, "num_ctx", "8192"), false)
   assert.equal(Model.paramIsDirty(entry, "num_ctx", "16384"), true)
   // Setting a value the model does not declare is a change.
-  assert.equal(Model.paramIsDirty(entry, "top_k", "40"), true)
+  assert.equal(Model.paramIsDirty(entry, "temperature", "0.5"), true)
   // Leaving an undeclared field blank is not.
-  assert.equal(Model.paramIsDirty(entry, "top_k", ""), false)
+  assert.equal(Model.paramIsDirty(entry, "temperature", ""), false)
   // Garbage is not a change -- the field will revert, so apply must not light
   // up for a value that can never be sent.
   assert.equal(Model.paramIsDirty(entry, "num_ctx", "banana"), false)

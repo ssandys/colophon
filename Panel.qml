@@ -33,8 +33,9 @@ Panel {
   readonly property string status: service.effectiveStatus
 
   // Count of TextFields with active focus, not a bool: the parameter editor
-  // instantiates four fields (one per PARAM_SPECS entry) and each one's
-  // onActiveFocusChanged fires independently on both edges. A bool set by
+  // instantiates one field per applicable spec (up to two, kind-filtered by
+  // paramSpecsFor) and each one's onActiveFocusChanged fires independently
+  // on both edges. A bool set by
   // whichever fires last is order-dependent by construction -- Tab from
   // field 1 to field 2 fires both handlers, and if the loser's false-write
   // lands after the gainer's true-write, the flag reads false while a field
@@ -628,8 +629,9 @@ Panel {
                 // It no longer can be: the parameter editor below needs to
                 // sit beside the button, never inside it, because the
                 // button's whole surface is a click-to-warm target. Putting
-                // four TextFields inside that surface would mean clicking a
-                // field to edit it also fires a multi-gigabyte model load.
+                // the editor's TextFields inside that surface would mean
+                // clicking a field to edit it also fires a multi-gigabyte
+                // model load.
                 // A Repeater delegate permits exactly one root, so that root
                 // is now this ColumnLayout, and Layout.fillWidth /
                 // Layout.leftMargin -- previously the button's own -- move
@@ -764,6 +766,7 @@ Panel {
                   // need the daemon, and every other control in this panel
                   // already gates on status.
                   ColumnLayout {
+                    id: paramEditor
                     Layout.fillWidth: true
                     // Also no leftMargin -- see the config Button above. The
                     // rows inside indent themselves to the button's content
@@ -772,6 +775,32 @@ Panel {
                     spacing: Style.space(2)
                     visible: root.expandedModel === modelData.name &&
                              root.status === "running"
+
+                    // The specs this model's KIND can use, hoisted once per
+                    // row rather than recomputed by both the Repeater's model
+                    // count and its delegate below. modelData.kind is a real
+                    // collector row key (tests/test_cross_language.py's
+                    // installed-row check greps this section for
+                    // `modelData.*` and cross-checks every hit against the
+                    // collector's row keys), so referencing it here is safe.
+                    // A kind the collector could not classify yields an empty
+                    // array from Model.paramSpecsFor, hiding the editor's
+                    // rows entirely rather than showing inapplicable fields
+                    // disabled.
+                    //
+                    // Referenced below as paramEditor.editableSpecs, never
+                    // bare -- QML does not walk arbitrary ancestor objects to
+                    // resolve an unqualified name; it resolves against the
+                    // object itself, the component root, and declared ids.
+                    // This ColumnLayout is neither, so the Repeater's model
+                    // and its delegate (a fresh component instantiation per
+                    // row) cannot see a bare `editableSpecs` -- it must go
+                    // through this id. Caught only by a headless qml6 probe
+                    // run with QT_FORCE_STDERR_LOGGING=1: the bare form fails
+                    // as a runtime ReferenceError on stderr, not a load
+                    // failure, so qmlformat and qmllint both stay silent.
+                    readonly property var editableSpecs:
+                      Model.paramSpecsFor(modelData.kind)
 
                     // Width of the label column, measured rather than guessed:
                     // a fixed Style.space() would drift the moment a theme
@@ -803,129 +832,164 @@ Panel {
                     }
 
                     Repeater {
-                      // An index-count model, not Model.PARAM_SPECS itself:
-                      // this Repeater nests inside the one iterating
-                      // installed rows, and QML's Repeater injects the same
-                      // implicit `modelData` name for every array model
-                      // regardless of nesting depth. tests/test_cross_
-                      // language.py's installed-row check greps this whole
-                      // section for `modelData.*` and cross-checks every hit
-                      // against the collector's row keys -- a spec's own
-                      // `key`/`label` would read as a phantom row field and
-                      // fail that check. Looking specs up by index sidesteps
-                      // the collision instead of fighting it.
-                      model: Model.PARAM_SPECS.length
+                      // An index-count model, not paramEditor.editableSpecs
+                      // itself: this Repeater nests inside the one iterating
+                      // installed rows, and QML's Repeater injects the same implicit
+                      // `modelData` name for every array model regardless of
+                      // nesting depth. tests/test_cross_language.py's
+                      // installed-row check greps this whole section for
+                      // `modelData.*` and cross-checks every hit against the
+                      // collector's row keys -- a spec's own `key`/`label`
+                      // would read as a phantom row field and fail that
+                      // check. Looking specs up by index sidesteps the
+                      // collision instead of fighting it.
+                      model: paramEditor.editableSpecs.length
 
-                      RowLayout {
-                        id: specRow
-                        readonly property var spec: Model.PARAM_SPECS[index]
+                      // A Repeater delegate permits exactly one root, so the
+                      // field row and its caption both live inside this
+                      // ColumnLayout rather than the field row being the
+                      // delegate root directly.
+                      ColumnLayout {
+                        id: specColumn
+                        readonly property var spec: paramEditor.editableSpecs[index]
                         Layout.fillWidth: true
-                        // Indents the label/value pair to exactly where
-                        // installedButton paints the model name -- the same
-                        // anchor the name/size row above uses. Per trap 29
-                        // this is a private upstream property: if it ever
-                        // disappears the margin resolves to 0 and these rows
-                        // go flush with the button's border instead of lining
-                        // up under the name. Cosmetic, not a crash.
-                        Layout.leftMargin:
-                          installedButton._reservedContentLeftInset
-                        spacing: Style.space(6)
+                        spacing: Style.space(1)
 
-                        Text {
-                          text: specRow.spec.label
-                          color: root.dim
-                          font.family: root.fontFamily
-                          font.pixelSize: Style.font.caption
-                          // A measured column, not fillWidth. fillWidth kept
-                          // the value boxes in a straight column too, but only
-                          // by stretching each label until its own value sat
-                          // against the panel's right edge. Pinning the label
-                          // width instead keeps that column straight AND lets
-                          // the value sit beside its label.
-                          Layout.preferredWidth: paramLabelMetrics.width
-                        }
+                        RowLayout {
+                          id: specRow
+                          Layout.fillWidth: true
+                          // Indents the label/value pair to exactly where
+                          // installedButton paints the model name -- the same
+                          // anchor the name/size row above uses. Per trap 29
+                          // this is a private upstream property: if it ever
+                          // disappears the margin resolves to 0 and these rows
+                          // go flush with the button's border instead of lining
+                          // up under the name. Cosmetic, not a crash.
+                          Layout.leftMargin:
+                            installedButton._reservedContentLeftInset
+                          spacing: Style.space(6)
 
-                        TextField {
-                          id: paramField
-                          readonly property string paramKey: specRow.spec.key
+                          Text {
+                            text: specColumn.spec.label
+                            color: root.dim
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            // A measured column, not fillWidth. fillWidth kept
+                            // the value boxes in a straight column too, but only
+                            // by stretching each label until its own value sat
+                            // against the panel's right edge. Pinning the label
+                            // width instead keeps that column straight AND lets
+                            // the value sit beside its label.
+                            Layout.preferredWidth: paramLabelMetrics.width
+                          }
 
-                          text: service.paramEditText(root.expandedEntry, paramKey)
-                          foreground: root.fg
-                          font.family: root.fontFamily
-                          font.pixelSize: Style.font.caption
-                          horizontalAlignment: TextInput.AlignRight
-                          // TextField's own header comment: "the default 30px
-                          // implicitHeight fits dialog forms; inline callers
-                          // (wifi's row-embedded passphrase prompt) drop
-                          // verticalPadding to match a 22-26px row." This is
-                          // an inline caller and was using the dialog default,
-                          // which is why four fields cost ~190px of a list
-                          // capped at Style.space(190). controlGap/xs land it
-                          // at the bottom of that documented range.
-                          horizontalPadding: Style.spacing.controlGap
-                          verticalPadding: Style.spacing.xs
-                          implicitWidth: paramValueMetrics.width +
-                                         horizontalPadding * 2 + Style.space(4)
+                          TextField {
+                            id: paramField
+                            readonly property string paramKey: specColumn.spec.key
 
-                          // Qt does NOT clear activeFocus when an item is
-                          // hidden -- verified by headless qml6 probe, three
-                          // deterministic runs. Without this, collapsing a row
-                          // while a field held focus left activeFocus stuck
-                          // true with no signal, so the counter below never
-                          // decremented; re-expanding then read
-                          // paramFieldsFocused === 0 while a field really did
-                          // have focus, and PanelKeyCatcher stole k/j/h/l,
-                          // Enter and r straight back -- the exact bug PR #6
-                          // shipped. Releasing focus here fires the -1.
-                          onVisibleChanged: if (!visible && activeFocus)
-                                              focus = false
+                            text: service.paramEditText(root.expandedEntry, paramKey)
+                            // An unset field is the MAIN case, not an edge
+                            // case -- num_ctx is blank on every generative
+                            // model in the owner's real store -- so the valid
+                            // range doubles as the field's own explanation of
+                            // what it will accept. The dim caption Text below
+                            // covers WHAT the parameter does; this covers
+                            // what values are legal.
+                            placeholderText: Model.formatParamRange(paramKey)
+                            foreground: root.fg
+                            font.family: root.fontFamily
+                            font.pixelSize: Style.font.caption
+                            horizontalAlignment: TextInput.AlignRight
+                            // TextField's own header comment: "the default 30px
+                            // implicitHeight fits dialog forms; inline callers
+                            // (wifi's row-embedded passphrase prompt) drop
+                            // verticalPadding to match a 22-26px row." This is
+                            // an inline caller and was using the dialog default,
+                            // which is why four fields cost ~190px of a list
+                            // capped at Style.space(190). controlGap/xs land it
+                            // at the bottom of that documented range.
+                            horizontalPadding: Style.spacing.controlGap
+                            verticalPadding: Style.spacing.xs
+                            implicitWidth: paramValueMetrics.width +
+                                           horizontalPadding * 2 + Style.space(4)
 
-                          // Clamped at zero: two fields handing focus over
-                          // directly fire their signals in either order, and
-                          // onExpandedModelChanged also resets to 0, so an
-                          // unclamped -= could strand the counter negative --
-                          // permanently below the `> 0` that blocks the key
-                          // catcher. Clamping fails toward blocking.
-                          onActiveFocusChanged: root.paramFieldsFocused =
-                            Math.max(0, root.paramFieldsFocused +
-                                        (activeFocus ? 1 : -1))
+                            // Qt does NOT clear activeFocus when an item is
+                            // hidden -- verified by headless qml6 probe, three
+                            // deterministic runs. Without this, collapsing a row
+                            // while a field held focus left activeFocus stuck
+                            // true with no signal, so the counter below never
+                            // decremented; re-expanding then read
+                            // paramFieldsFocused === 0 while a field really did
+                            // have focus, and PanelKeyCatcher stole k/j/h/l,
+                            // Enter and r straight back -- the exact bug PR #6
+                            // shipped. Releasing focus here fires the -1.
+                            onVisibleChanged: if (!visible && activeFocus)
+                                                focus = false
 
-                          onEditingFinished: {
-                            var parsed = Model.parseParamInput(paramKey, text)
-                            if (isNaN(parsed)) {
-                              // Garbage reverts rather than being stored, so
-                              // apply can never offer to send it.
+                            // Clamped at zero: two fields handing focus over
+                            // directly fire their signals in either order, and
+                            // onExpandedModelChanged also resets to 0, so an
+                            // unclamped -= could strand the counter negative --
+                            // permanently below the `> 0` that blocks the key
+                            // catcher. Clamping fails toward blocking.
+                            onActiveFocusChanged: root.paramFieldsFocused =
+                              Math.max(0, root.paramFieldsFocused +
+                                          (activeFocus ? 1 : -1))
+
+                            onEditingFinished: {
+                              var parsed = Model.parseParamInput(paramKey, text)
+                              if (isNaN(parsed)) {
+                                // Garbage reverts rather than being stored, so
+                                // apply can never offer to send it.
+                                text = Qt.binding(function () {
+                                  return service.paramEditText(root.expandedEntry,
+                                                               paramKey)
+                                })
+                                return
+                              }
+                              service.setParamEdit(root.expandedModel, paramKey,
+                                                   String(parsed))
+                            }
+
+                            Keys.onEscapePressed: function (event) {
+                              // Revert and defocus. Does NOT close the panel --
+                              // esc inside an editor means "abandon this edit."
+                              // PanelKeyCatcher is already blocked while this
+                              // field has focus, so this handler is what fires;
+                              // event.accepted is set defensively so nothing
+                              // above it reinterprets the key regardless.
                               text = Qt.binding(function () {
                                 return service.paramEditText(root.expandedEntry,
                                                              paramKey)
                               })
-                              return
+                              focus = false
+                              event.accepted = true
                             }
-                            service.setParamEdit(root.expandedModel, paramKey,
-                                                 String(parsed))
                           }
 
-                          Keys.onEscapePressed: function (event) {
-                            // Revert and defocus. Does NOT close the panel --
-                            // esc inside an editor means "abandon this edit."
-                            // PanelKeyCatcher is already blocked while this
-                            // field has focus, so this handler is what fires;
-                            // event.accepted is set defensively so nothing
-                            // above it reinterprets the key regardless.
-                            text = Qt.binding(function () {
-                              return service.paramEditText(root.expandedEntry,
-                                                           paramKey)
-                            })
-                            focus = false
-                            event.accepted = true
+                          // Absorbs the leftover width so the label/value pair
+                          // stays a tight unit on the left rather than being
+                          // stretched apart across the panel.
+                          Item {
+                            Layout.fillWidth: true
                           }
                         }
 
-                        // Absorbs the leftover width so the label/value pair
-                        // stays a tight unit on the left rather than being
-                        // stretched apart across the panel.
-                        Item {
+                        Text {
+                          // Sits under the FIELD column, not the label column:
+                          // the row's own base inset plus the label column's
+                          // measured width plus specRow's inter-column spacing
+                          // lines this up with paramField instead of with its
+                          // label.
+                          text: specColumn.spec.description
+                          color: root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
                           Layout.fillWidth: true
+                          wrapMode: Text.WordWrap
+                          Layout.leftMargin:
+                            installedButton._reservedContentLeftInset +
+                            paramLabelMetrics.width + Style.space(6)
                         }
                       }
                     }

@@ -257,7 +257,7 @@ class SetParamsTest(unittest.TestCase):
 
     def test_every_parameter_has_bounds_and_a_type(self):
         self.assertEqual(sorted(action.PARAM_BOUNDS),
-                         ["num_ctx", "temperature", "top_k", "top_p"])
+                         ["num_ctx", "temperature"])
         for key, (low, high, is_int) in action.PARAM_BOUNDS.items():
             self.assertLess(low, high, key)
             self.assertIsInstance(is_int, bool, key)
@@ -265,16 +265,14 @@ class SetParamsTest(unittest.TestCase):
     def test_a_value_out_of_range_is_refused(self):
         for args in (["set-params", "llama3.2:3b", "--param", "num_ctx=1"],
                      ["set-params", "llama3.2:3b", "--param", "num_ctx=999999"],
-                     ["set-params", "llama3.2:3b", "--param", "temperature=9"],
-                     ["set-params", "llama3.2:3b", "--param", "top_p=2"],
-                     ["set-params", "llama3.2:3b", "--param", "top_k=0"]):
+                     ["set-params", "llama3.2:3b", "--param", "temperature=9"]):
             with self.subTest(args=args):
                 result = run(args + ["--dry-run"])
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn("must be between", result.stderr)
 
     def test_an_unknown_parameter_is_refused(self):
-        # The editor owns four keys. Accepting a fifth here would let the write
+        # The editor owns two keys. Accepting a third here would let the write
         # surface drift from the panel and from Model.PARAM_SPECS.
         result = run(["set-params", "llama3.2:3b",
                       "--param", "mirostat=2", "--dry-run"])

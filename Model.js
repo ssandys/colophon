@@ -160,24 +160,43 @@ function bootIsToggleable(unitFileState) {
   return state === "enabled" || state === "disabled"
 }
 
-// The four parameters the panel's editor owns, in display order. Bounds are
-// mirrored in colophon_action.py, which is the only surface that writes, and
-// tests/test_cross_language.py asserts the two agree along with Panel.qml --
-// a one-sided edit here fails silently otherwise. See AGENTS.md trap #12.
+// The two parameters the panel's editor owns, in display order. Narrowed from
+// four in task 6b: top_p and top_k were never set alone on the owner's real
+// store, always alongside temperature, and exposing one without the other
+// invites making output worse. Bounds are mirrored in colophon_action.py,
+// which is the only surface that writes, and tests/test_cross_language.py
+// asserts the two agree along with Panel.qml -- a one-sided edit here fails
+// silently otherwise. See AGENTS.md trap #12.
+//
+// `kinds` lists which collector-reported model kinds the parameter applies
+// to; paramSpecsFor filters on it so the editor hides what a model's kind
+// cannot use rather than showing it disabled. `description` is the dim
+// caption shown under the field -- the owner explicitly rejected a
+// tooltip-only explanation, since an invisible affordance has no discovery.
 var PARAM_SPECS = [
-  { key: "num_ctx", label: "context", min: 4096, max: 131072,
-    step: 1, decimals: 0 },
-  { key: "temperature", label: "temperature", min: 0, max: 2,
-    step: 0.01, decimals: 2 },
-  { key: "top_p", label: "top_p", min: 0, max: 1,
-    step: 0.01, decimals: 2 },
-  { key: "top_k", label: "top_k", min: 1, max: 200,
-    step: 1, decimals: 0 }]
+  { key: "num_ctx", label: "context", min: 4096, max: 131072, step: 1,
+    decimals: 0, kinds: ["generate", "embed"],
+    description: "tokens it can consider at once — prompt plus reply" },
+  { key: "temperature", label: "temperature", min: 0, max: 2, step: 0.01,
+    decimals: 2, kinds: ["generate"],
+    description: "higher is more random; 0 is repeatable" }]
 
 function paramSpec(key) {
   for (var i = 0; i < PARAM_SPECS.length; i++)
     if (PARAM_SPECS[i].key === key) return PARAM_SPECS[i]
   return null
+}
+
+// The specs applicable to a model's kind, in PARAM_SPECS order. Returns a new
+// array -- never PARAM_SPECS itself -- so a caller (Panel.qml hoists this into
+// a readonly property per row) cannot mutate the module's own list. An
+// unknown or empty kind matches no spec's `kinds` and so returns an empty
+// array rather than all specs: a row whose kind the collector could not
+// classify must not offer edits it cannot justify.
+function paramSpecsFor(kind) {
+  return PARAM_SPECS.filter(function (spec) {
+    return spec.kinds.indexOf(kind) >= 0
+  })
 }
 
 function paramValue(entry, key) {
@@ -187,21 +206,37 @@ function paramValue(entry, key) {
   return raw
 }
 
+// toFixed to the spec's decimals then strip trailing zeros, so 0.60 reads as
+// 0.6 while 0.95 keeps both digits. A fixed 2dp would render every context as
+// "8192.00", and a bare min/max would render temperature's range as
+// "0.00–2.00" instead of "0–2".
+function trimmedFixed(number, decimals) {
+  if (decimals === 0) return String(Math.round(number))
+  var text = number.toFixed(decimals)
+  while (text.indexOf(".") >= 0 &&
+         (text.charAt(text.length - 1) === "0" ||
+          text.charAt(text.length - 1) === "."))
+    text = text.substring(0, text.length - 1)
+  return text
+}
+
 function formatParamValue(key, value) {
   if (value === null || value === undefined) return ""
   var spec = paramSpec(key)
   if (!spec) return ""
   var number = Number(value)
   if (!isFinite(number)) return ""
-  // toFixed then strip trailing zeros, so 0.60 reads as 0.6 while 0.95 keeps
-  // both digits. A fixed 2dp would render every context as "8192.00".
-  if (spec.decimals === 0) return String(Math.round(number))
-  var text = number.toFixed(spec.decimals)
-  while (text.indexOf(".") >= 0 &&
-         (text.charAt(text.length - 1) === "0" ||
-          text.charAt(text.length - 1) === "."))
-    text = text.substring(0, text.length - 1)
-  return text
+  return trimmedFixed(number, spec.decimals)
+}
+
+// The field's placeholder text when unset: "<min>–<max>" (U+2013 EN DASH),
+// trailing zeros trimmed the same way formatParamValue trims a value. Returns
+// "" for an unknown key, matching how this file's other lookups fail soft.
+function formatParamRange(key) {
+  var spec = paramSpec(key)
+  if (!spec) return ""
+  return trimmedFixed(spec.min, spec.decimals) + "–" +
+         trimmedFixed(spec.max, spec.decimals)
 }
 
 function parseParamInput(key, text) {
@@ -391,8 +426,10 @@ if (typeof module !== "undefined") {
     bootLabel: bootLabel,
     bootIsToggleable: bootIsToggleable,
     PARAM_SPECS: PARAM_SPECS,
+    paramSpecsFor: paramSpecsFor,
     paramValue: paramValue,
     formatParamValue: formatParamValue,
+    formatParamRange: formatParamRange,
     parseParamInput: parseParamInput,
     paramIsDirty: paramIsDirty,
     formatBytes: formatBytes,

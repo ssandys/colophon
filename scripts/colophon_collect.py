@@ -77,10 +77,12 @@ SHOW_PROPERTIES = (
 # target machine: nomic-embed-text reports model_family "nomic-bert".
 EMBED_FAMILIES = ("bert", "nomic-bert", "xlm-roberta")
 
-# The four parameters the panel's editor owns. Ollama stores every parameter in
-# one layer, so the filter is here rather than in the reader: a `stop` list or a
-# `mirostat` int must not reach a panel that has no idiom for them.
-EDITABLE_PARAMS = ("num_ctx", "temperature", "top_p", "top_k")
+# The two parameters the panel's editor owns. Narrowed from four in task 6b:
+# top_p and top_k were never set alone on the owner's real store, always
+# alongside temperature. Ollama stores every parameter in one layer, so the
+# filter is here rather than in the reader: a `stop` list or a `mirostat` int
+# must not reach a panel that has no idiom for them.
+EDITABLE_PARAMS = ("num_ctx", "temperature")
 PARAMS_MEDIA_TYPE = "application/vnd.ollama.image.params"
 
 _FRACTION_RE = re.compile(r"\.(\d+)")
