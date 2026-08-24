@@ -4,6 +4,7 @@
   colophon_action.py start|stop|restart|enable|disable            [--dry-run]
   colophon_action.py warm   <model> [--kind K] [--keep-alive MIN] [--dry-run]
   colophon_action.py unload <model> [--kind K]                    [--dry-run]
+  colophon_action.py set-params <model> --param KEY=VALUE [--param KEY=VALUE ...] [--dry-run]
 
 Common flags: --api-base URL.
 
@@ -36,7 +37,18 @@ BOOT_VERBS = ("enable", "disable")
 # category cannot ship without the --no-ask-password assertion covering it.
 SYSTEMCTL_VERBS = LIFECYCLE_VERBS + BOOT_VERBS
 MODEL_VERBS = ("warm", "unload")
+PARAM_VERBS = ("set-params",)
 KINDS = ("generate", "embed")
+
+# key -> (min, max, is_int). Mirrored in Model.js's PARAM_SPECS; this is the
+# only surface that writes, and tests/test_cross_language.py asserts the two
+# agree along with Panel.qml. See AGENTS.md trap #12.
+PARAM_BOUNDS = {
+    "num_ctx": (4096, 131072, True),
+    "temperature": (0.0, 2.0, False),
+    "top_p": (0.0, 1.0, False),
+    "top_k": (1, 200, True),
+}
 
 DEFAULT_API_BASE = "http://127.0.0.1:11434"
 DEFAULT_KEEP_ALIVE_MIN = 5
@@ -93,10 +105,27 @@ def load_body(model, kind, keep_alive):
     return body
 
 
-def plan(verb, target, kind, keep_alive_min, api_base, running):
+def create_body(model, params):
+    """The POST /api/create body that re-stamps `model` in place.
+
+    `from` is the model's own name: that is how Ollama re-stamps a definition,
+    and the create is additive -- template, system message and existing
+    parameters all survive, verified on the target machine. It is metadata-only,
+    so it does not scale with model size (45ms on an 18.2 GB model).
+    """
+    return {"model": model, "from": model, "parameters": dict(params)}
+
+
+def plan(verb, target, kind, keep_alive_min, api_base, running, params=None):
     """The steps this verb would perform, as human-readable lines."""
+    if params is None:
+        params = {}
     if verb in SYSTEMCTL_VERBS:
         return [" ".join(systemctl_command(verb))]
+
+    if verb in PARAM_VERBS:
+        return ["POST " + str(api_base).rstrip("/") + "/api/create "
+                + json.dumps(create_body(target, params), sort_keys=True)]
 
     base = str(api_base).rstrip("/")
     keep_alive = 0 if verb == "unload" else str(int(keep_alive_min)) + "m"
@@ -184,9 +213,13 @@ def run_systemctl(verb):
     return 0
 
 
-def execute(verb, target, kind, keep_alive_min, api_base):
+def execute(verb, target, kind, keep_alive_min, api_base, params=None):
     if verb in SYSTEMCTL_VERBS:
         return run_systemctl(verb)
+
+    if verb in PARAM_VERBS:
+        return post_json(str(api_base).rstrip("/") + "/api/create",
+                         create_body(target, params or {}))
 
     if verb == "warm" and not api_reachable(api_base):
         code = run_systemctl("start")
@@ -218,6 +251,7 @@ def main(argv):
     kind = "generate"
     keep_alive_raw = DEFAULT_KEEP_ALIVE_MIN
     api_base = DEFAULT_API_BASE
+    params = {}
     while args:
         arg = args.pop(0)
         if arg == "--dry-run":
@@ -228,13 +262,44 @@ def main(argv):
             keep_alive_raw = args.pop(0)
         elif arg == "--api-base" and args:
             api_base = args.pop(0)
+        elif arg == "--param" and args:
+            raw = args.pop(0)
+            if "=" not in raw:
+                sys.stderr.write(
+                    "colophon_action: --param needs KEY=VALUE, got '"
+                    + raw + "'\n")
+                return 2
+            key, _, value_text = raw.partition("=")
+            if key not in PARAM_BOUNDS:
+                sys.stderr.write(
+                    "colophon_action: unknown parameter '" + key + "'\n")
+                return 2
+            low, high, is_int = PARAM_BOUNDS[key]
+            try:
+                value = int(value_text) if is_int else float(value_text)
+            except ValueError:
+                sys.stderr.write(
+                    "colophon_action: " + key + " must be "
+                    + ("an integer" if is_int else "a number")
+                    + ", got '" + value_text + "'\n")
+                return 2
+            if value < low or value > high:
+                sys.stderr.write(
+                    "colophon_action: " + key + " must be between "
+                    + str(low) + " and " + str(high) + "\n")
+                return 2
+            params[key] = value
         else:
             sys.stderr.write(
                 "colophon_action: unknown argument '" + arg + "'\n")
             return 2
 
-    if verb not in SYSTEMCTL_VERBS + MODEL_VERBS:
+    if verb not in SYSTEMCTL_VERBS + MODEL_VERBS + PARAM_VERBS:
         sys.stderr.write("colophon_action: unknown verb '" + verb + "'\n")
+        return 2
+    if verb in PARAM_VERBS and not params:
+        sys.stderr.write(
+            "colophon_action: set-params needs at least one --param\n")
         return 2
     if kind not in KINDS:
         sys.stderr.write("colophon_action: unknown kind '" + kind + "'\n")
@@ -260,7 +325,7 @@ def main(argv):
             "colophon_action: --api-base must start with http:// or https://\n")
         return 2
 
-    if verb in MODEL_VERBS:
+    if verb in MODEL_VERBS + PARAM_VERBS:
         if not target:
             sys.stderr.write(
                 "colophon_action: " + verb + " needs a model\n")
@@ -271,10 +336,12 @@ def main(argv):
             return 3
 
     if dry_run:
-        for line in plan(verb, target, kind, keep_alive_min, api_base, False):
+        for line in plan(verb, target, kind, keep_alive_min, api_base, False,
+                         params=params):
             sys.stdout.write(line + "\n")
         return 0
-    return execute(verb, target, kind, keep_alive_min, api_base)
+    return execute(verb, target, kind, keep_alive_min, api_base,
+                   params=params)
 
 
 if __name__ == "__main__":
