@@ -2,8 +2,8 @@
 
 Colophon is an Omarchy shell bar widget that shows the state of your local
 Ollama server — running, stopped, or something in between — and lets you
-start it, stop it, restart it, choose whether it starts at boot, and load or
-unload models, without leaving the bar.
+start it, stop it, restart it, choose whether it starts at boot, load or
+unload models, and edit a model's own parameters, without leaving the bar.
 
 ![The Colophon panel open below the bar: a header reading "Colophon" beside
 "ollama 0.32.9"; a status line "running · up 4h 10m · 5.0 GB" with a green
@@ -101,12 +101,23 @@ models, 19.7 GB` while not.
   than reporting a false timeout while the load is still quietly succeeding.
   The row reads "warming…" and the status line reads "starting…" for as long
   as either step takes.
+- **`config`**, beside an installed model's size, opens that model's
+  parameter editor. The section only appears while the server is running —
+  both reading a model's current parameters and writing new ones need it.
+  Each field shows the value the model sets, or, if it doesn't set that
+  parameter, the field is empty and shows its valid range as dim placeholder
+  text instead (e.g. `4096–131072`), with a dim caption beside it saying what
+  the parameter does. An embedding model shows `context` only — `temperature`
+  has no effect on an embedding model and is hidden for it. **`apply`** is
+  the only thing that writes; typing into a field only stages the edit until
+  you do.
 - **The switch on the boot line** decides whether `ollama.service` starts at
   boot. It moves the instant you click it, then asks you to authenticate — see
   Boot start below for what it does and does not change.
 - **`✕`** next to a loaded model unloads it immediately, freeing its memory.
 - **`r`** refreshes the panel right away.
-- **`esc`** closes the panel.
+- **`esc`** closes the panel — except while a parameter field has focus, where
+  it abandons that field's edit instead and leaves the panel open.
 - **Middle-click** the bar icon starts Ollama if it isn't already running
   (i.e. it's `stopped` or `failed`) and just refreshes the snapshot
   otherwise. This is deliberately asymmetric: starting is harmless, but
@@ -144,6 +155,12 @@ sudo systemctl enable ollama.service
 Set these from the shell's widget settings panel for `ssandys.colophon`, or
 directly in `shell.json`. Defaults and ranges below come straight from
 `manifest.json`.
+
+These are the widget's own settings, not a model's. The per-model parameter
+bounds shown in each `config` editor (context's `4096–131072`, temperature's
+`0–2`) are a separate thing entirely: they live in the code, not
+`manifest.json`, and there is nowhere to configure them beyond editing a
+model itself.
 
 | Key | Type | Default | Range | Effect |
 |---|---|---|---|---|
@@ -245,6 +262,23 @@ readable.
   own error rather than guessing again.
 - No preflight dependency check. A missing binary surfaces as an ordinary
   collector error, not a "please install X" message — see Prerequisites.
+- A newly pulled model keeps its shipped defaults until you open its `config`
+  editor and apply a change yourself; there's no global default and no sweep
+  across every installed model.
+- The parameter editor needs the server running, because both reading a
+  model's current parameters and writing new ones go through the API.
+- Parameters are read from the model's own manifest tree on disk, so a
+  change made outside Colophon — `ollama create`/`ollama cp` from a
+  terminal, say — appears after Colophon's next poll rather than
+  immediately.
+- `stop` sequences, template, system message and license aren't editable
+  here.
+- `num_ctx`'s ceiling in the editor is a fixed bound, not the model's own
+  trained maximum. A model trained at a smaller context will still accept a
+  larger window you set and quietly degrade rather than error — the real
+  trained maximum lives in GGUF metadata the manifest tree doesn't carry, so
+  Colophon has no way to know it and cannot warn you before you set one too
+  high.
 
 ## Uninstall
 
@@ -254,3 +288,7 @@ omarchy plugin remove ssandys.colophon
 
 Uninstalling the widget never touches `ollama.service` or anything under
 `/var/lib/ollama` either way — your server and your models are untouched.
+
+That cuts one way, though: any parameter edit you applied through `config`
+was written into the model itself, not into the widget, so it persists after
+uninstall too. Removing Colophon does not revert it.
