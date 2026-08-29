@@ -71,6 +71,12 @@ API_WAIT_DEADLINE_SEC = 20
 # during a real load is not a failure at all. 300s comfortably covers a large
 # model on a cold cache without waiting forever on a genuinely dead server.
 LOAD_POST_TIMEOUT_SEC = 300
+# A local port is not automatically a trusted one: while the unit is stopped,
+# any process on this machine can bind 11434 and answer. Every response body
+# below is discarded or shown as a one-line error, so neither needs to be
+# large, and a timeout bounds how long we wait rather than how much we accept.
+MAX_API_BYTES = 1 << 20
+MAX_ERROR_DETAIL_CHARS = 512
 
 POLL_SLEEP_SEC = 0.5
 
@@ -142,7 +148,7 @@ def api_reachable(api_base, timeout=API_TIMEOUT_SEC):
     url = str(api_base).rstrip("/") + "/api/version"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
-            response.read()
+            response.read(MAX_API_BYTES)
         return True
     except (urllib.error.URLError, http.client.HTTPException, OSError,
             ValueError, TimeoutError):
@@ -164,7 +170,7 @@ def post_json(url, body):
         url, data=payload, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(request, timeout=LOAD_POST_TIMEOUT_SEC) as response:
-            response.read()
+            response.read(MAX_API_BYTES)
         return 0
     except urllib.error.HTTPError as error:
         # Surface the API's own message: this is how a warm against the wrong
@@ -173,7 +179,9 @@ def post_json(url, body):
         detail = ""
         try:
             with error:
-                detail = error.read().decode("utf-8", "replace").strip()
+                detail = (error.read(MAX_API_BYTES)
+                          .decode("utf-8", "replace").strip()
+                          [:MAX_ERROR_DETAIL_CHARS])
         except (http.client.HTTPException, OSError):
             # Reading the error body can itself hit IncompleteRead, which is
             # an HTTPException and NOT an OSError -- the same gap that let a
