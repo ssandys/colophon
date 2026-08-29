@@ -278,6 +278,11 @@ readable.
   immediately.
 - `stop` sequences, template, system message and license aren't editable
   here.
+- Applying a parameter writes it to the model on disk; it does not reach into
+  a copy that is already running. `num_ctx` is allocated when a model loads, so
+  a model that is currently warm keeps the context window it was loaded with —
+  unload it with `✕` and let it load again for the new value to take hold.
+  Raised by @dchristensen8 in #6.
 - A staged edit you never applied outlives the row. Type a value, collapse
   the model without pressing `apply`, and re-opening it later shows what you
   typed rather than what the model declares — deliberately, so a refresh can
