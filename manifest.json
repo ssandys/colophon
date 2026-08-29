@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ssandys.colophon",
   "name": "Colophon",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "author": "Sean Sandys",
   "license": "MIT",
   "description": "Ollama server status and control in the bar: start, stop, restart, start-at-boot, loaded and installed models, and per-model parameter editing. Summon with: omarchy-shell shell toggle ssandys.colophon",

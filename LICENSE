@@ -46,11 +46,10 @@ Colophon also reads Ollama's on-disk model manifests and blobs under
 `/var/lib/ollama`, to list installed models and to show the parameters each one
 declares. It writes nothing there — the collector and action scripts make no
 filesystem writes at all. The parameter editor changes a model instead by asking
-the running server to do it, over that same
-local HTTP API: `POST /api/create` carrying only the parameters you edited, which
-the server applies additively — everything else in the model's definition
-survives untouched. The resulting write is the server's own. Colophon never
-pulls or deletes a model.
+the running server to do it, over that same local HTTP API: `POST /api/create`
+carrying only the parameters you edited, which the server applies additively —
+everything else in the model's definition survives untouched. The resulting
+write is the server's own. Colophon never pulls or deletes a model.
 
 **Privilege.** Colophon installs no root-owned file and ships no polkit rule or
 sudoers drop-in. Privileged `systemctl` verbs authorize interactively through the
