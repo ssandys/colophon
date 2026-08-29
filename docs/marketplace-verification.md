@@ -180,6 +180,37 @@ retires an assumption this document originally made.
   override, so there is nothing to request; note the shape of the gate anyway,
   because `review-required` would not satisfy it.
 
+## The precedent worth citing in a maintainer conversation
+
+Marketplace issue #2659, against a different plugin by the same author, is the
+closest thing to a worked example of how this reviewer reads a Quickshell
+plugin. It is worth reading before filing anything here, for three reasons.
+
+**It shows what gets blocked.** The finding was not a vulnerability in the
+usual sense. It was an *unbounded read of a predictable path feeding the shared
+shell process* — a state file consumed with `FileView` and iterated without a
+cap. The remedy asked for was specific: a producer-side byte limit before the
+content reaches QML, rejection of non-regular and symlinked inputs, and a cap
+on the number and size of records. A second round then rejected a
+stat-then-reopen pair as a race and a predictable temp file as a redirect
+target.
+
+**Colophon had the same shape, one layer removed,** and it was hardened before
+this listing update rather than after. Reads now go through `os.open` with
+`O_NOFOLLOW` and `O_NONBLOCK` plus an `fstat` `S_ISREG` check and a byte cap; a
+layer digest must match `sha256-[0-9a-f]{64}` before it becomes a path; models,
+field lengths and both HTTP bodies are capped. Nine tests cover it, each
+verified to fail or hang against the unhardened reader. The write half of that
+review does not apply at all: Colophon performs no filesystem write anywhere,
+which is now stated in `LICENSE` and is worth saying plainly if asked.
+
+**It also shows what the automated baseline does not see.** That plugin's
+baseline came back `passed`, with no findings and no capabilities, and the
+blocking issue was found by a human afterwards. Colophon's baseline has never
+been the gate here either — `service-management` is real, so this listing is
+`review-required` every time and gets human eyes on every submission. Treat the
+scanner as the entry fee and the manual read as the actual review.
+
 ## Limits worth restating
 
 The marketplace's own words: these are "limited automated compatibility and

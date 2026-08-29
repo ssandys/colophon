@@ -110,7 +110,12 @@ models, 19.7 GB` while not.
   the parameter does. An embedding model shows `context` only — `temperature`
   has no effect on an embedding model and is hidden for it. **`apply`** is
   the only thing that writes; typing into a field only stages the edit until
-  you do.
+  you do, and it stays dark until you actually change something — a model
+  that declares a value Colophon cannot express (a context below `4096`, say)
+  shows you that value but does not offer to rewrite it on your behalf. What
+  a field displays is what `apply` sends: type more decimals than the field
+  shows and it settles to the number that will be written, the same way a
+  value above the range settles to the maximum.
 - **The switch on the boot line** decides whether `ollama.service` starts at
   boot. It moves the instant you click it, then asks you to authenticate — see
   Boot start below for what it does and does not change.
@@ -273,6 +278,11 @@ readable.
   immediately.
 - `stop` sequences, template, system message and license aren't editable
   here.
+- A staged edit you never applied outlives the row. Type a value, collapse
+  the model without pressing `apply`, and re-opening it later shows what you
+  typed rather than what the model declares — deliberately, so a refresh can
+  never discard something you were in the middle of. Focus the field and
+  press `esc` to discard it, or restart the shell.
 - `num_ctx`'s ceiling in the editor is a fixed bound, not the model's own
   trained maximum. A model trained at a smaller context will still accept a
   larger window you set and quietly degrade rather than error — the real
