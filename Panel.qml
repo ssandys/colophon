@@ -971,6 +971,31 @@ Panel {
                             Math.max(0, root.paramFieldsFocused +
                                         (activeFocus ? 1 : -1))
 
+                          // The third way a focused field stops holding focus,
+                          // and the one neither handler above can see: it is
+                          // DESTROYED. The installed Repeater's model is bound
+                          // to the snapshot, and QQuickRepeater compares the
+                          // converted value and returns early only while the
+                          // content is EQUAL -- an ordinary poll rebuilds
+                          // nothing, which is why typing survives. A poll whose
+                          // content differs tears down and rebuilds every
+                          // delegate, and this feature's own successful apply
+                          // is what makes it differ: a write rewrites the
+                          // manifest, so the next row differs in `parameters`
+                          // and `modifiedAt`. Destruction is not hiding and
+                          // signals no focus change, so without this the
+                          // counter stranded at 1 with nothing focused,
+                          // PanelKeyCatcher stayed blocked, and r and esc were
+                          // dead for the rest of the panel session -- the exact
+                          // bug PR #6 shipped, reintroduced on the happy path.
+                          // It ratcheted rather than self-healed: clicking the
+                          // field again took it to 2 and Escape back to 1,
+                          // never to 0, and only onExpandedModelChanged reset
+                          // it. Probe-verified 3/3 broken and 3/3 fixed.
+                          Component.onDestruction: if (activeFocus)
+                            root.paramFieldsFocused =
+                              Math.max(0, root.paramFieldsFocused - 1)
+
                           // Records the edit as it is typed, and this is
                           // load-bearing rather than eager. `text` above is a
                           // live binding on the snapshot, and typing does NOT

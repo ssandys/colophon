@@ -401,6 +401,75 @@ class ParamSpecTest(unittest.TestCase):
                          "set")
 
 
+class ParamWriteGuardTest(unittest.TestCase):
+    """Three invariants that decide whether `apply` writes what the user asked
+    for, and which NO runtime test in this repository can reach: two live in
+    Service.qml and one in a QML focus transition. All three were shipped
+    broken and caught by review, so they are pinned at the source level -- the
+    same idiom BarGlyphTest and ColorPaletteTest already use for QML facts.
+
+    Comments are stripped first, so a guard cannot be satisfied by prose that
+    merely describes the invariant.
+    """
+
+    @staticmethod
+    def strip_comments(source):
+        return re.sub(r"//[^\n]*", "", source)
+
+    def qml_function(self, source, name):
+        """The body of a top-level `function <name>(` in a QML file.
+
+        Sliced to the next two-space `function ` declaration rather than by
+        brace matching: every function in Service.qml sits at one indent level
+        inside the root object, so the next sibling declaration is an
+        unambiguous terminator and needs no brace counter.
+        """
+        start = source.index("function " + name + "(")
+        rest = source[start + 1:]
+        end = rest.find("\n  function ")
+        return rest if end < 0 else rest[:end]
+
+    def test_the_dirty_loops_are_kind_filtered_and_need_a_staged_edit(self):
+        if not panel_is_wired():
+            self.skipTest("Panel.qml is not wired to Service.qml yet")
+        source = self.strip_comments(read("Service.qml"))
+        for name in ("paramDirty", "commitParams"):
+            body = self.qml_function(source, name)
+            self.assertIn(
+                "Model.paramSpecsFor(entry.kind)", body,
+                name + " must walk the specs the panel actually renders. "
+                "Iterating every spec let an embedding model that declares an "
+                "out-of-range temperature light apply with no visible field, "
+                "and write a temperature onto a model that hides it.")
+            self.assertNotIn(
+                "PARAM_SPECS", body,
+                name + " must not iterate the unfiltered spec list.")
+            self.assertIn(
+                "hasParamEdit", body,
+                name + " must require a staged edit. Deciding dirtiness by "
+                "comparing the parsed field text against the raw declared "
+                "value goes dirty with nothing typed whenever a declared "
+                "value does not survive its own round trip -- the field "
+                "renders it rounded and clamped, and both transforms are "
+                "lossy.")
+
+    def test_a_destroyed_parameter_field_releases_the_focus_count(self):
+        if not panel_is_wired():
+            self.skipTest("Panel.qml is not wired to Service.qml yet")
+        source = self.strip_comments(read("Panel.qml"))
+        self.assertRegex(
+            source,
+            r"Component\.onDestruction:\s*if\s*\(activeFocus\)\s*"
+            r"root\.paramFieldsFocused\s*=",
+            "A parameter field must give its focus count back when it is "
+            "DESTROYED, not only when it is hidden or blurred. The installed "
+            "Repeater rebuilds every delegate whenever the snapshot's content "
+            "differs, and a successful apply is exactly what makes it differ. "
+            "Without this the counter strands above zero with nothing "
+            "focused, and PanelKeyCatcher swallows r and esc for the rest of "
+            "the panel session -- the bug PR #6 shipped.")
+
+
 def node_binary():
     return shutil.which("node")
 

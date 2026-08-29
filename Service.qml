@@ -202,10 +202,35 @@ Item {
     root.paramEdits = next
   }
 
+  // Whether the user has actually staged an edit for this key. Dirtiness hangs
+  // off this rather than off a value comparison alone, because comparing the
+  // parsed field text against the raw declared value went dirty with nothing
+  // typed whenever a declared value did not survive its own round trip: the
+  // field displays a rounded, clamped rendering, and both transforms are lossy
+  // in different directions. A model declaring `num_ctx 2048` -- below this
+  // editor's floor -- lit apply on open and offered to write 4096; a
+  // temperature typed to more decimals than the field shows re-lit apply after
+  // its own successful write. Requiring an edit is also the plainest statement
+  // of the guarantee the whole design rests on: apply sends what the user
+  // changed, and nothing else.
+  function hasParamEdit(entry, key) {
+    if (!entry) return false
+    return root.paramEdits.hasOwnProperty(root.paramEditKey(entry.name, key))
+  }
+
+  // Both loops below walk the KIND-FILTERED specs, not every spec. The
+  // all-specs loop agreed with the panel only by accident -- nothing could
+  // dirty a field that was never rendered -- and stopped agreeing the moment a
+  // value comparison could go dirty untouched. An embedding model declaring an
+  // out-of-range temperature then lit apply with no visible field to explain
+  // it, and pressing it stamped a temperature onto a model whose entire reason
+  // for hiding that field is that temperature is meaningless for it.
   function paramDirty(entry) {
     if (!entry) return false
-    for (var i = 0; i < Model.PARAM_SPECS.length; i++) {
-      var key = Model.PARAM_SPECS[i].key
+    var specs = Model.paramSpecsFor(entry.kind)
+    for (var i = 0; i < specs.length; i++) {
+      var key = specs[i].key
+      if (!root.hasParamEdit(entry, key)) continue
       if (Model.paramIsDirty(entry, key, root.paramEditText(entry, key)))
         return true
     }
@@ -215,8 +240,10 @@ Item {
   function commitParams(entry) {
     if (!entry || root.actionInProgress !== "") return
     var args = []
-    for (var i = 0; i < Model.PARAM_SPECS.length; i++) {
-      var key = Model.PARAM_SPECS[i].key
+    var specs = Model.paramSpecsFor(entry.kind)
+    for (var i = 0; i < specs.length; i++) {
+      var key = specs[i].key
+      if (!root.hasParamEdit(entry, key)) continue
       var text = root.paramEditText(entry, key)
       if (!Model.paramIsDirty(entry, key, text)) continue
       var value = Model.parseParamInput(key, text)

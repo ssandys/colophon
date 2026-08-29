@@ -436,6 +436,40 @@ test("parseParamInput clamps in range and rejects nonsense", () => {
   assert.ok(Number.isNaN(Model.parseParamInput("nope", "1")))
 })
 
+test("parseParamInput quantises to the precision the field displays", () => {
+  // A value typed to more precision than the field renders used to be stored
+  // and written whole, so the panel showed 0.12 while the model held
+  // 0.123456 -- and the next dirty check compared those two and re-lit apply
+  // after its own successful write.
+  assert.equal(Model.parseParamInput("temperature", "0.123456"), 0.12)
+  assert.equal(Model.parseParamInput("temperature", "0.125"), 0.13)
+  assert.equal(Model.parseParamInput("temperature", "0.005"), 0.01)
+  assert.equal(Model.parseParamInput("temperature", "1.999"), 2)
+  // Measured, not desired: 1.005 is really 1.00499..., so toFixed renders
+  // "1.00". Recorded so a future reader knows it was looked at rather than
+  // missed -- a half-cent case in a temperature field costs nothing.
+  assert.equal(Model.parseParamInput("temperature", "1.005"), 1)
+  // Integers still truncate. Rounding applies only to specs with decimals.
+  assert.equal(Model.parseParamInput("num_ctx", "8192.7"), 8192)
+})
+
+test("a parsed value survives being displayed and parsed again", () => {
+  // The invariant apply rests on: what the field shows is what apply sends.
+  // Without it a successful write leaves the field showing one number while
+  // the model holds another, which reads as the write having failed.
+  const typed = {
+    temperature: ["0", "0.1", "0.123456", "0.125", "1.999", "2", "5", "-3"],
+    num_ctx: ["4096", "8192.7", "65536", "999999", "1"]
+  }
+  for (const key of Object.keys(typed))
+    for (const text of typed[key]) {
+      const once = Model.parseParamInput(key, text)
+      const shown = Model.formatParamValue(key, once)
+      assert.equal(Model.parseParamInput(key, shown), once,
+                   key + " typed as " + text + " did not survive the round trip")
+    }
+})
+
 test("paramIsDirty compares typed text against the model's declared value", () => {
   const entry = { name: "m", parameters: { num_ctx: 8192 } }
   assert.equal(Model.paramIsDirty(entry, "num_ctx", "8192"), false)
