@@ -6,17 +6,25 @@ start it, stop it, restart it, choose whether it starts at boot, load or
 unload models, and edit a model's own parameters, without leaving the bar.
 
 ![The Colophon panel open below the bar: a header reading "Colophon" beside
-"ollama 0.32.9"; a status line "running · up 4h 10m · 5.0 GB" with a green
-dot and "2 models loaded" on the right; an "enabled at boot" line with a
-switch beside it, shown on; stop and restart buttons; a LOADED section listing
-muse-glimmer:latest at 16.7 GB and deepseek-r1:latest at 9.9 GB, each marked
-GPU with a keep-alive countdown and an unload button; and an INSTALLED section
-headed "11 · 50.7 GB" listing the model store](preview.png)
+"ollama 0.32.15"; a status line "running · up 15h 48m · 1.5 GB" with a green
+dot and "1 model loaded" on the right; an "enabled at boot" line with a switch
+beside it, shown on; stop and restart buttons; a LOADED section listing
+deepseek-r1:latest at 9.9 GB, marked GPU with a 3:30 keep-alive countdown and
+an unload button; and an INSTALLED section headed "11 · 50.7 GB" in which
+gemma3:4b is expanded into its parameter editor — a context field showing the
+range 4096–131072 as dim placeholder text, a temperature field holding 1, a
+dim caption beside each explaining what it does, and a dimmed apply
+button](preview.png)
 
-Above: the busy state — two models resident on the GPU, their keep-alive
-timers counting down, and the bar glyph carrying a badge of `2`. The glyph's
-color stays the default foreground while nothing is wrong; severity reaches
-the bar as color, and the badge only ever carries a count.
+Above: the parameter editor open on `gemma3:4b`. The empty `context` field is
+a model that does not set that parameter, so the field offers its valid range
+rather than a value; `temperature` shows the `1` the model actually declares.
+`apply` is dim because nothing has been typed — it lights only for a change
+you made, and it is the only thing that writes. Every installed row carries
+its own `config`, and the bar glyph carries a badge of `1` for the single
+resident model. The glyph's color stays the default foreground while nothing
+is wrong; severity reaches the bar as color, and the badge only ever carries
+a count.
 
 ## Prerequisites
 
