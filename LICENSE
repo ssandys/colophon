@@ -36,15 +36,21 @@ it invokes or reads. Each remains under its own license, held by its own authors
 
 | Dependency | Arch package | How Colophon uses it | License |
 |---|---|---|---|
-| Ollama | `ollama` | The server itself. Read over its local HTTP API; `ollama --version` is the client-version fallback when the server is down | MIT |
+| Ollama | `ollama` | The server itself. Read and written over its local HTTP API; `ollama --version` is the client-version fallback when the server is down | MIT |
 | systemd (`systemctl`) | `systemd` | Reads `ollama.service` state, and runs `start`, `stop`, `restart`, `enable`, `disable` on it | LGPL-2.1-or-later |
 | Python 3 | `python` | Runs the collector and action scripts | PSF-2.0 |
 | libnotify (`notify-send`) | `libnotify` | The "service died unexpectedly" desktop notification | LGPL-2.1-or-later |
 | Omarchy shell (Quickshell) | — | Hosts the widget; supplies the UI components and the polkit authentication agent | See the Omarchy project |
 
 Colophon also reads Ollama's on-disk model manifests and blobs under
-`/var/lib/ollama` to list installed models. It only reads them; it never writes
-to that path, and it never pulls or deletes a model.
+`/var/lib/ollama`, to list installed models and to show the parameters each one
+declares. It writes nothing there — the collector and action scripts make no
+filesystem writes at all. The parameter editor changes a model instead by asking
+the running server to do it, over that same
+local HTTP API: `POST /api/create` carrying only the parameters you edited, which
+the server applies additively — everything else in the model's definition
+survives untouched. The resulting write is the server's own. Colophon never
+pulls or deletes a model.
 
 **Privilege.** Colophon installs no root-owned file and ships no polkit rule or
 sudoers drop-in. Privileged `systemctl` verbs authorize interactively through the
