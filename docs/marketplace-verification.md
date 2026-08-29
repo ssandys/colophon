@@ -3,8 +3,10 @@
 How Colophon is listed on the Omarchy plugin marketplace, what the automated
 security baseline sees in this repository, and what has to happen after a
 feature branch lands. Facts here were read from the marketplace repository and
-its live `registry.json` on 2026-08-24, not from memory — an earlier round of
-this work was misdiagnosed twice by trusting recollection.
+its live `registry.json`, not from memory — an earlier round of this work was
+misdiagnosed twice by trusting recollection. Written 2026-08-24 and re-checked
+against the live registry on 2026-08-29; what moved in between is in "What
+changed after this document was written."
 
 ## Current listing state
 
@@ -53,13 +55,24 @@ behaviour**:
 
 | Capability | Triggered by | Real? |
 |---|---|---|
-| `service-management` | `systemctl` in `scripts/colophon_action.py`, `scripts/colophon_collect.py`, and `README.md` | **Yes.** Colophon genuinely reads and controls `ollama.service` |
+| `service-management` | `systemctl` in `scripts/colophon_action.py`, `scripts/colophon_collect.py`, `README.md` — **and `LICENSE`**, cited at lines 37 and 50 of the verified snapshot | **Yes.** Colophon genuinely reads and controls `ollama.service` |
 | `privilege` | `sudo` in `README.md` only, at the "if you'd rather not use the switch" terminal equivalent and the systemd-override note | **No.** There is no `sudo` or `pkexec` anywhere in the code — grep the scripts and QML and you get zero hits. These are instructions telling a user what *they* may type |
 | `package-manager` | `pkg add` in `README.md` only, in Prerequisites | **No.** Colophon installs nothing; this is a line telling the user how to install a missing dependency |
 
 That distinction is worth stating in any maintainer conversation: the scanner
 reports deterministic evidence, not intent, and it explicitly scans the root
 README. Two thirds of Colophon's review surface is the README being helpful.
+
+**`LICENSE` is review surface too**, and the first version of this document got
+that wrong — it credited `service-management` to the scripts and the README
+alone. The published baseline report on issue #1419 quotes `LICENSE:37` and
+`LICENSE:50`, because Colophon's LICENSE carries an external-dependency table and
+a privilege note below the MIT grant. Anything in it is prose a reviewer will be
+shown as evidence, so it has to stay as accurate as the README. It went stale on
+the parameter-editor branch — it still said Colophon only ever read the model
+store — and was corrected before merge. When a feature changes what Colophon
+does, `LICENSE` belongs on the list of documents to re-read alongside `README.md`
+and `manifest.json`.
 
 An earlier scan at commit `7b105f4f` also reported `installer`. That dropped
 when `bin/install-privileges` was deleted, which is visible in the registry's
@@ -91,13 +104,14 @@ Reasoning, each point checkable:
   stdlib-only.
 
 **The one thing that could change the answer is documentation.** The baseline
-scans the root README, and `privilege` and `package-manager` are already
-triggered from there. Adding a new `sudo` example, or a new package-install
-instruction, would not change the outcome (both capabilities are already
-present) — but removing the existing ones would not clear the review either,
-because `service-management` is real and independently requires review. Do not
-contort the README to chase a `passed` outcome; it is unreachable while
-Colophon controls a systemd unit, which is the entire point of the plugin.
+scans the root README and `LICENSE`, and `privilege` and `package-manager` are
+already triggered from the README. Adding a new `sudo` example, or a new
+package-install instruction, would not change the outcome (both capabilities are
+already present) — but removing the existing ones would not clear the review
+either, because `service-management` is real and independently requires review.
+Do not contort either document to chase a `passed` outcome; it is unreachable
+while Colophon controls a systemd unit, which is the entire point of the plugin.
+Accuracy is the goal, not a lower capability count.
 
 ## Re-verification procedure, after merging to master
 
@@ -134,6 +148,38 @@ Neither of these blocks verification. Both bit the previous submission.
   previous submission was held up because both still listed only
   start/stop/restart.
 
+## What changed after this document was written
+
+Four marketplace changes landed between 2026-08-24 and 2026-08-29, read from the
+marketplace repository's own `SECURITY.md`, `VERIFICATION.md` and merged pull
+requests. None of them blocks the re-verification above, but the first one
+retires an assumption this document originally made.
+
+- **Verification is revocable.** A `maintainer-verified` label applied in error
+  and then removed publishes an exact event-bound revocation, and the affected
+  snapshot projects back to `Unverified`. The original review and the revocation
+  are both preserved in the registry and listing history. Re-review then needs a
+  fresh eligible bot report *and* a new label event. Read this document's
+  "verified once, pinned until superseded" framing with that in mind: the pin
+  can be undone as well as replaced.
+- **The scan's file boundary widened.** Paths named `install`, `installer`,
+  `setup` or `uninstall` are now candidates even when their extension is a
+  recognised binary asset, checked with bounded probes inside a 1 MiB budget and
+  capped at 256 candidates. A complete binary asset with a setup-like name cannot
+  be excluded and fails closed. **No effect here** — `git ls-files | grep -iE
+  "install|setup|uninstall"` returns nothing, and the only tracked binary is
+  `preview.png`.
+- **Delisting is now a workflow.** Owner-only, `workflow_dispatch` on `main`,
+  capped at 20 exact plugin IDs, and it appends every removed ID to
+  `retiredPluginIds` permanently.
+- **Standard installation can be requested.** The verification form carries a
+  guarded action that removes a listing's manual-installation override, gated on
+  an exact listed commit, a *passing* automated baseline, and a
+  `standard-installation-approved` label — and a maintainer review explicitly
+  cannot substitute for that passing baseline. Colophon carries no manual
+  override, so there is nothing to request; note the shape of the gate anyway,
+  because `review-required` would not satisfy it.
+
 ## Limits worth restating
 
 The marketplace's own words: these are "limited automated compatibility and
@@ -146,5 +192,7 @@ nothing about whether the privilege model is sound.
 
 The validator distinguishes `plugin-id-listed` from `plugin-id-retired`, and a
 retired ID can never be reused. Delisting would not free `ssandys.colophon`.
-The registry currently lists five retired IDs, so this is enforced, not
-theoretical.
+This is enforced rather than theoretical, and the enforcement is not rare: the
+registry listed five retired IDs on 2026-08-24 and **21** on 2026-08-29 — thirteen
+of them retired in a single day, through the delisting workflow described above.
+`ssandys.colophon` is not among them.
