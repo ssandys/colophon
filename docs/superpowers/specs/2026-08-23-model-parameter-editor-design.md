@@ -337,3 +337,50 @@ tasks; a requirement that no task mentions at all is invisible to it, because
 nothing contradicts it. Any future plan scan against this spec should start by
 enumerating Scope and mapping each item to a task, and should treat an unmapped
 item as a finding rather than as silence.
+
+## Amendment 2026-08-29 — two contracts the final review had to establish
+
+Both were found by the whole-branch review, both were shipped broken, and both
+are the kind of thing a later change can quietly undo. They are recorded here
+rather than only in commit messages so the spec states them.
+
+**`apply` is enabled by a staged edit, not by a value comparison.** The
+original implementation decided dirtiness by comparing the parsed field text
+against the model's raw declared value. Both sides are lossy in different
+directions — the field renders a value rounded to the spec's decimals, the
+parse clamps it to the spec's bounds — so any declared value that did not
+survive its own round trip lit `apply` with nothing typed. A model declaring
+`num_ctx 2048` offered to write `4096` on open; a temperature typed to more
+decimals than the field shows re-lit `apply` after its own successful write.
+Since `commitParams` sends every key it thinks is dirty, editing only
+`num_ctx` on a model declaring `temperature 0.155` also wrote
+`temperature=0.15`.
+
+That makes the Scope sentence "Colophon sends only what the user actually
+changed" false, so the rule is now stated directly rather than inferred:
+**a key is dirty only when the user has staged an edit for it.** The
+consequence worth knowing is that a model declaring a value this editor cannot
+express shows that value but does not offer to rewrite it — the user has to
+type. That is the correct trade: the alternative writes without intent.
+
+`parseParamInput` also quantises to the spec's decimals, so what the field
+displays is what `apply` sends.
+
+**Both dirtiness loops walk the kind-filtered specs.** They previously walked
+every spec, which agreed with the panel only by accident — nothing could dirty
+a field that was never rendered. Combined with the defect above it stopped
+agreeing: an embedding model declaring an out-of-range temperature lit `apply`
+with no visible field to explain it, and pressing it stamped a `temperature`
+onto a model whose entire reason for hiding that field (Amendment 2026-08-24)
+is that temperature is meaningless for it.
+
+**A destroyed field must release the focus count.** The editor's key-catcher
+gating counts focused fields. A delegate can lose focus a third way that
+neither `onVisibleChanged` nor `onActiveFocusChanged` reports: destruction.
+The installed list rebuilds every delegate whenever the snapshot's content
+differs, and this feature's own successful write is what makes it differ. The
+counter stranded above zero, `PanelKeyCatcher` stayed blocked, and `r` and
+`esc` died for the rest of the panel session — the bug PR #6 shipped,
+reintroduced on the happy path. See AGENTS.md traps #32 and #39; the durable
+fix is to stop mirroring Qt's focus state and derive the gate from the
+window's real `activeFocusItem`.
