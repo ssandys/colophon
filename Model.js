@@ -251,6 +251,14 @@ function parseParamInput(key, text) {
   // engine, so use the form that has always worked.
   if (spec.decimals === 0)
     number = number < 0 ? Math.ceil(number) : Math.floor(number)
+  else
+    // Quantise to the precision the field displays. Without this a typed
+    // 0.123456 was stored and written at full precision while the field
+    // rendered it as 0.12, so the panel showed a number the model did not
+    // hold. toFixed rather than a multiply-and-round pair: it is ES5, and it
+    // rounds the same decimal-string way formatParamValue does, which is the
+    // whole point -- what you see is what apply sends.
+    number = Number(number.toFixed(spec.decimals))
   // Clamp rather than reject: a typed 999999 is an unambiguous intent to go as
   // high as allowed, and rejecting it would just revert the field silently.
   return Math.max(spec.min, Math.min(spec.max, number))
