@@ -55,6 +55,7 @@ import json
 import os
 import re
 import shlex
+import stat
 
 DEFAULT_MODELS_ROOT = "/var/lib/ollama"
 
@@ -82,6 +83,26 @@ EMBED_FAMILIES = ("bert", "nomic-bert", "xlm-roberta")
 # alongside temperature. Ollama stores every parameter in one layer, so the
 # filter is here rather than in the reader: a `stop` list or a `mirostat` int
 # must not reach a panel that has no idiom for them.
+# The model store is not our own state. Ollama fills it from a remote
+# registry, and OLLAMA_MODELS can point it at a user-writable directory, so
+# every read below treats what it finds as untrusted input. The marketplace
+# review of a sibling plugin (omarchy-plugin-marketplace#2659) turned exactly
+# this shape -- an unbounded read of a predictable path feeding a shell widget
+# -- into a listing blocker; the remedy asked for there was a producer-side
+# byte limit, rejection of non-regular and symlinked inputs, and a cap on the
+# number and size of records. That is what the four limits below are.
+MAX_JSON_BYTES = 1 << 20
+MAX_API_BYTES = 8 << 20
+MAX_MODELS = 512
+MAX_FIELD_CHARS = 256
+
+# Ollama names every blob after its own digest. All 2266 blobs on the
+# development machine matched this exactly, so rejecting anything else costs
+# nothing real and removes a whole question: a digest is manifest-supplied,
+# and os.path.join would accept "../.." or an absolute path and read whatever
+# it named.
+_DIGEST_RE = re.compile(r"^sha256-[0-9a-f]{64}$")
+
 EDITABLE_PARAMS = ("num_ctx", "temperature")
 PARAMS_MEDIA_TYPE = "application/vnd.ollama.image.params"
 
@@ -243,12 +264,54 @@ def _read_json(path):
     AttributeError and takes down the whole inventory instead of being
     skipped.
     """
+    handle = None
+    descriptor = None
     try:
-        with open(path) as handle:
-            payload = json.load(handle)
+        # The guarantees ride on open(2) rather than on a stat-then-open pair,
+        # which would leave a window between the check and the read. NOFOLLOW
+        # fails a symlink at open with ELOOP instead of following it, and
+        # NONBLOCK means a FIFO planted at this path returns immediately
+        # instead of parking the collector forever -- and with it the panel,
+        # which has no timeout and skips a refresh while one is in flight.
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            return None
+        handle = os.fdopen(descriptor, "r", encoding="utf-8", errors="replace")
+        descriptor = None
+        # One byte over the cap is read so a file at exactly the limit is kept
+        # and an oversized one is refused rather than silently truncated into
+        # something that might still parse.
+        text = handle.read(MAX_JSON_BYTES + 1)
+        if len(text) > MAX_JSON_BYTES:
+            return None
+        payload = json.loads(text)
     except (OSError, ValueError):
         return None
+    finally:
+        if handle is not None:
+            handle.close()
+        elif descriptor is not None:
+            os.close(descriptor)
     return payload if isinstance(payload, dict) else None
+
+
+def _blob_path(root, digest):
+    """On-disk path for a layer digest, or None if it is not a digest.
+
+    The digest is manifest-supplied, so it is checked against the shape ollama
+    actually writes before it becomes a path. Without this, a manifest
+    carrying an absolute path reads that file instead -- os.path.join drops
+    everything before an absolute component.
+    """
+    name = str(digest or "").replace(":", "-")
+    if not _DIGEST_RE.match(name):
+        return None
+    return os.path.join(root, "blobs", name)
+
+
+def _short(value):
+    """A string lifted out of a blob, capped. These reach QML Text items."""
+    return str(value or "")[:MAX_FIELD_CHARS]
 
 
 def scan_installed(root):
@@ -265,7 +328,10 @@ def scan_installed(root):
     pattern = os.path.join(root, "manifests", "*", "*", "*", "*")
     entries = []
     seen = {}
-    for path in sorted(glob.glob(pattern)):
+    # Capped: every manifest here becomes a row the shell renders, and the
+    # store is not ours. Far above any real library -- the development machine
+    # has eleven models.
+    for path in sorted(glob.glob(pattern))[:MAX_MODELS]:
         manifest = _read_json(path)
         if not manifest:
             continue
@@ -298,10 +364,9 @@ def scan_installed(root):
             if digest:
                 seen[digest] = layer_size
 
-        blob = _read_json(os.path.join(
-            root, "blobs", str(config.get("digest", "")).replace(":", "-")))
-        blob = blob or {}
-        family = blob.get("model_family") or ""
+        config_path = _blob_path(root, config.get("digest"))
+        blob = (_read_json(config_path) if config_path else None) or {}
+        family = _short(blob.get("model_family"))
 
         parameters = {}
         for layer in layers:
@@ -309,8 +374,10 @@ def scan_installed(root):
                 continue
             if layer.get("mediaType") != PARAMS_MEDIA_TYPE:
                 continue
-            raw = _read_json(os.path.join(
-                root, "blobs", str(layer.get("digest", "")).replace(":", "-")))
+            params_path = _blob_path(root, layer.get("digest"))
+            if not params_path:
+                continue
+            raw = _read_json(params_path)
             if not isinstance(raw, dict):
                 continue
             for key in EDITABLE_PARAMS:
@@ -326,8 +393,8 @@ def scan_installed(root):
             "name": model_label(registry, namespace, name, tag),
             "sizeBytes": size,
             "family": family,
-            "parameterSize": blob.get("model_type") or "",
-            "quantization": blob.get("file_type") or "",
+            "parameterSize": _short(blob.get("model_type")),
+            "quantization": _short(blob.get("file_type")),
             "kind": model_kind(family),
             "parameters": parameters,
             "modifiedAt": modified,
@@ -375,7 +442,13 @@ def api_get(api_base, path, timeout):
     started = time.monotonic()
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+            # timeout bounds how long this waits, not how much it accepts. A
+            # local port is not automatically a trusted one: while the unit is
+            # stopped, any process on this machine can bind 11434 and answer.
+            body = response.read(MAX_API_BYTES + 1)
+            if len(body) > MAX_API_BYTES:
+                return (None, None)
+            payload = json.loads(body.decode("utf-8"))
     except (urllib.error.URLError, http.client.HTTPException, OSError,
             ValueError, TimeoutError):
         return (None, None)

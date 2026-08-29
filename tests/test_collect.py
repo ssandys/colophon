@@ -411,6 +411,165 @@ def names_of(entries):
     return [entry["name"] for entry in entries]
 
 
+class UntrustedStoreTest(unittest.TestCase):
+    """The model store is input, not our own state.
+
+    Ollama fills it from a remote registry and OLLAMA_MODELS can point it at a
+    user-writable directory, so a manifest's contents and the files a digest
+    names are both outside our control. The marketplace review of a sibling
+    plugin (omarchy-plugin-marketplace#2659) treated exactly this shape as a
+    listing blocker, and its own lesson was that the most security-sensitive
+    code in that plugin was the only code with no tests. These are those tests.
+    """
+
+    HEX = "0" * 64
+
+    def store(self, tmp, manifest, blobs=None):
+        """A minimal store: one manifest at the glob's depth, plus blobs."""
+        root = os.path.join(tmp, "models")
+        path = os.path.join(root, "manifests", "registry.ollama.ai",
+                            "library", "probe", "latest")
+        os.makedirs(os.path.dirname(path))
+        os.makedirs(os.path.join(root, "blobs"))
+        with open(path, "w") as handle:
+            json.dump(manifest, handle)
+        for name, payload in (blobs or {}).items():
+            with open(os.path.join(root, "blobs", name), "w") as handle:
+                json.dump(payload, handle)
+        return root
+
+    def test_a_symlink_is_refused_and_its_target_is_not_read(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            secret = os.path.join(tmp, "secret.json")
+            with open(secret, "w") as handle:
+                json.dump({"model_family": "leaked"}, handle)
+            link = os.path.join(tmp, "link.json")
+            os.symlink(secret, link)
+            # O_NOFOLLOW fails at open with ELOOP rather than following.
+            self.assertIsNone(collect._read_json(link))
+            # The target itself is still perfectly readable -- proving the
+            # refusal is about the symlink, not about the file being unreadable.
+            self.assertEqual(collect._read_json(secret),
+                             {"model_family": "leaked"})
+
+    def test_a_fifo_is_refused_without_blocking(self):
+        import tempfile
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            fifo = os.path.join(tmp, "pipe.json")
+            os.mkfifo(fifo)
+            started = time.monotonic()
+            # No writer is ever attached. Without O_NONBLOCK this open parks
+            # forever, and with it the collector -- and the panel, which skips
+            # a refresh while one is in flight and has no timeout.
+            self.assertIsNone(collect._read_json(fifo))
+            self.assertLess(time.monotonic() - started, 5.0)
+
+    def test_a_directory_is_refused(self):
+        # Characterization, not a guard: plain open() already raises
+        # IsADirectoryError, so this one passes with or without the fstat.
+        # Kept because it pins the contract, not because it discriminates.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(collect._read_json(tmp))
+
+    def test_a_character_device_is_refused_rather_than_read_forever(self):
+        # This is what the S_ISREG check is actually for. A directory and a
+        # socket both fail at open on their own; a character device opens
+        # cleanly and then never ends. Reading /dev/zero without the check
+        # spins until the byte cap, and before the cap existed, until memory
+        # ran out. Nothing is written -- /dev/zero is opened read-only.
+        if not os.path.exists("/dev/zero"):
+            self.skipTest("no /dev/zero on this platform")
+        self.assertIsNone(collect._read_json("/dev/zero"))
+
+    def test_a_file_over_the_cap_is_refused_and_one_at_the_cap_is_read(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            big = os.path.join(tmp, "big.json")
+            filler = "x" * (collect.MAX_JSON_BYTES + 1024)
+            with open(big, "w") as handle:
+                json.dump({"model_family": filler}, handle)
+            self.assertGreater(os.path.getsize(big), collect.MAX_JSON_BYTES)
+            self.assertIsNone(collect._read_json(big))
+
+            # A file that fits is still read, so the cap is a bound and not a
+            # blanket refusal.
+            ok = os.path.join(tmp, "ok.json")
+            with open(ok, "w") as handle:
+                json.dump({"model_family": "nomic-bert"}, handle)
+            self.assertEqual(collect._read_json(ok),
+                             {"model_family": "nomic-bert"})
+
+    def test_only_a_real_digest_becomes_a_blob_path(self):
+        root = "/store"
+        # Both forms ollama writes: the manifest carries "sha256:...", the
+        # file on disk is "sha256-...".
+        self.assertEqual(collect._blob_path(root, "sha256:" + self.HEX),
+                         os.path.join(root, "blobs", "sha256-" + self.HEX))
+        self.assertEqual(collect._blob_path(root, "sha256-" + self.HEX),
+                         os.path.join(root, "blobs", "sha256-" + self.HEX))
+        for hostile in ("/etc/passwd",
+                        "../../../../etc/passwd",
+                        "sha256-../../../etc/passwd",
+                        "sha256-" + "0" * 63,
+                        "sha256-" + "G" * 64,
+                        "sha256-" + "A" * 64,
+                        "", None, 17):
+            self.assertIsNone(collect._blob_path(root, hostile), repr(hostile))
+
+    def test_a_manifest_naming_an_absolute_path_reads_nothing(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            secret = os.path.join(tmp, "secret.json")
+            with open(secret, "w") as handle:
+                json.dump({"model_family": "leaked", "model_type": "8B"}, handle)
+            # os.path.join drops everything before an absolute component, so
+            # without the digest whitelist this path is read verbatim.
+            root = self.store(tmp, {"config": {"digest": secret, "size": 1},
+                                    "layers": []})
+
+            entries, _ = collect.scan_installed(root)
+
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0]["family"], "")
+            self.assertEqual(entries[0]["parameterSize"], "")
+
+    def test_a_long_blob_field_is_truncated_before_it_reaches_the_panel(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            name = "sha256-" + self.HEX
+            root = self.store(
+                tmp,
+                {"config": {"digest": "sha256:" + self.HEX, "size": 1},
+                 "layers": []},
+                {name: {"model_family": "b" * 5000, "model_type": "c" * 5000}})
+
+            entries, _ = collect.scan_installed(root)
+
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(len(entries[0]["family"]), collect.MAX_FIELD_CHARS)
+            self.assertEqual(len(entries[0]["parameterSize"]),
+                             collect.MAX_FIELD_CHARS)
+
+    def test_the_number_of_models_is_capped(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "models")
+            base = os.path.join(root, "manifests", "registry.ollama.ai",
+                                "library")
+            for index in range(collect.MAX_MODELS + 5):
+                directory = os.path.join(base, "m%04d" % index)
+                os.makedirs(directory)
+                with open(os.path.join(directory, "latest"), "w") as handle:
+                    json.dump({"config": {}, "layers": []}, handle)
+
+            entries, _ = collect.scan_installed(root)
+
+            self.assertEqual(len(entries), collect.MAX_MODELS)
+
+
 class UnitFromShowTest(unittest.TestCase):
     def test_shapes_the_stopped_fixture(self):
         show = collect.parse_show(fixture_text("stopped", "systemctl.txt"))
