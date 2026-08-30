@@ -17,6 +17,21 @@ Panel {
   moduleName: "ssandys.colophon"
   ipcTarget: "ssandys.colophon"
 
+  // Every Text below declares `textFormat: Text.PlainText`, and that is a
+  // security property rather than a style choice. The default is
+  // Text.AutoText, which sniffs the string and renders HTML-shaped content as
+  // rich text -- inside the shared shell process, where an <img src="http://…">
+  // becomes a resource Qt tries to fetch. Three sinks carry strings this
+  // plugin does not author: model names (from the manifest tree on disk, and
+  // from an API whose base URL is a user-editable setting) and collector or
+  // action stderr. Measured with a headless qml6 probe, 3/3 runs: the same
+  // hostile string laid out at 95.8px under the default and 382.3px as
+  // PlainText -- the default swallowed the tag instead of showing it.
+  // All 24 are set rather than only the three, so the question never has to be
+  // asked again when a Text is added. Pinned by ParamWriteGuardTest's sibling
+  // in tests/test_cross_language.py. Reported by the marketplace review of
+  // 92161f0 (omarchy-plugin-marketplace#3413).
+
   readonly property string barIcon: Model.BAR_GLYPH
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(fg, 1.45)
@@ -157,6 +172,7 @@ Panel {
       anchors.verticalCenterOffset: -button.fontSize * 0.5
 
       Text {
+        textFormat: Text.PlainText
         id: badgeLabel
         anchors.centerIn: parent
         text: Model.badgeText(root.snap)
@@ -208,6 +224,7 @@ Panel {
           spacing: Style.space(8)
 
           Text {
+            textFormat: Text.PlainText
             text: root.barIcon + "  Colophon"
             color: root.fg
             font.family: root.fontFamily
@@ -217,6 +234,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             // Server version when running, client version otherwise -- the
             // header is never blank, because `ollama --version` reports the
             // client version even with the server down.
@@ -241,6 +259,7 @@ Panel {
           spacing: Style.space(6)
 
           Text {
+            textFormat: Text.PlainText
             text: Model.statusDot(root.status)
             color: Model.dotColor(root.status, root.dim)
             font.family: root.fontFamily
@@ -248,6 +267,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             text: {
               var label = Model.statusLabel(root.status, service.secondsInStatus)
               var pieces = [label]
@@ -270,6 +290,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: root.snap.summary && root.snap.summary.loadedCount > 0
             text: Model.plural(root.snap.summary
               ? root.snap.summary.loadedCount : 0, "model") + " loaded"
@@ -292,6 +313,7 @@ Panel {
           visible: bootText.text !== "" && root.status !== "missing"
 
           Text {
+            textFormat: Text.PlainText
             id: bootText
             text: Model.bootLabel(root.snap.unit ? root.snap.unit.unitFileState : "")
             color: root.dim
@@ -341,6 +363,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: Model.actionDisabledReason(root.status) !== ""
           text: Model.actionDisabledReason(root.status)
           color: root.dim
@@ -407,6 +430,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: service.actionInProgress !== ""
             text: "working…"
             color: root.dim
@@ -421,6 +445,7 @@ Panel {
         // stopped, failed, and missing are STATES, rendered above with no error
         // styling. This strip means the widget itself could not find out.
         Text {
+          textFormat: Text.PlainText
           visible: text !== ""
           text: service.actionError || service.collectorError
           color: "#ef4444"
@@ -446,6 +471,7 @@ Panel {
           visible: root.status === "running" || root.status === "foreign"
 
           Text {
+            textFormat: Text.PlainText
             text: "LOADED"
             color: root.dim
             font.family: root.fontFamily
@@ -454,6 +480,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: (root.snap.loaded || []).length === 0
             text: "No models loaded"
             color: root.dim
@@ -498,6 +525,7 @@ Panel {
                   spacing: Style.space(6)
 
                   Text {
+                    textFormat: Text.PlainText
                     text: modelData.name
                     color: root.fg
                     font.family: root.fontFamily
@@ -507,6 +535,7 @@ Panel {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     text: Model.formatBytes(modelData.sizeBytes)
                     color: root.dim
                     font.family: root.fontFamily
@@ -514,6 +543,7 @@ Panel {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     text: Model.processorLabel(modelData)
                     color: modelData.processor === "gpu" ? "#22c55e" : root.dim
                     font.family: root.fontFamily
@@ -521,6 +551,7 @@ Panel {
                   }
 
                   Text {
+                    textFormat: Text.PlainText
                     visible: modelData.expiresAt !== null &&
                              modelData.expiresAt !== undefined
                     text: Model.formatCountdown(
@@ -576,6 +607,7 @@ Panel {
             spacing: Style.space(6)
 
             Text {
+              textFormat: Text.PlainText
               text: {
                 var summary = root.snap.summary
                 if (!summary) return "INSTALLED"
@@ -590,6 +622,7 @@ Panel {
             }
 
             Text {
+              textFormat: Text.PlainText
               visible: root.status !== "missing"
               text: "click a model to run it"
               color: root.dim
@@ -599,6 +632,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             visible: (root.snap.installed || []).length === 0
             text: "No models installed"
             color: root.dim
@@ -717,6 +751,7 @@ Panel {
                         spacing: Style.space(6)
 
                         Text {
+                          textFormat: Text.PlainText
                           text: modelData.name
                           color: root.fg
                           font.family: root.fontFamily
@@ -726,6 +761,7 @@ Panel {
                         }
 
                         Text {
+                          textFormat: Text.PlainText
                           text: service.actionInProgress === "warm:" + modelData.name
                             ? "warming…" : Model.formatBytes(modelData.sizeBytes)
                           color: root.dim
@@ -905,6 +941,7 @@ Panel {
                         spacing: Style.space(6)
 
                         Text {
+                          textFormat: Text.PlainText
                           text: specRow.spec.label
                           color: root.dim
                           font.family: root.fontFamily
@@ -1076,6 +1113,7 @@ Panel {
                         // panel's width -- and the elide is the backstop for
                         // a theme with a wider font, not the normal case.
                         Text {
+                          textFormat: Text.PlainText
                           text: specRow.spec.description
                           color: root.dim
                           font.family: root.fontFamily
@@ -1115,6 +1153,7 @@ Panel {
         PanelSeparator { Layout.fillWidth: true; foreground: root.fg }
 
         Text {
+          textFormat: Text.PlainText
           Layout.fillWidth: true
           horizontalAlignment: Text.AlignHCenter
           text: "r refresh · esc closes"

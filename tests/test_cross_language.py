@@ -470,6 +470,53 @@ class ParamWriteGuardTest(unittest.TestCase):
             "the panel session -- the bug PR #6 shipped.")
 
 
+class TextFormatGuardTest(unittest.TestCase):
+    """Every `Text` in Panel.qml must declare `textFormat: Text.PlainText`.
+
+    The default is `Text.AutoText`, which sniffs the string and renders
+    HTML-shaped content as rich text inside the shared shell process, where an
+    `<img src="http://...">` becomes a resource Qt tries to fetch. Three sinks
+    carry strings this plugin does not author -- model names off the manifest
+    tree and from an API whose base URL is a user-editable setting, and the
+    stderr of both scripts.
+
+    Reported against commit 92161f0 by the marketplace security review
+    (HANCORE-linux/omarchy-plugin-marketplace#3413), which counted 0 of 24
+    declaring a format. Measured with a headless qml6 probe, 3/3 runs: the same
+    hostile string laid out at 95.8px under the default and 382.3px as
+    PlainText -- the default swallowed the tag rather than showing it.
+
+    Asserted for ALL of them rather than the three known sinks, so a Text added
+    later cannot reintroduce the question.
+    """
+
+    def test_every_text_item_declares_plain_text(self):
+        if not panel_is_wired():
+            self.skipTest("Panel.qml is not wired to Service.qml yet")
+        source = read("Panel.qml")
+        lines = source.split("\n")
+        opens = [i for i, line in enumerate(lines)
+                 if re.match(r"^\s*Text \{$", line)]
+        self.assertGreater(len(opens), 0, "found no Text items to check")
+
+        missing = []
+        for index in opens:
+            # The declaration is the line straight after the brace. Deliberately
+            # positional rather than a search of the whole block: it keeps the
+            # guard from being satisfied by a nested item's declaration, and it
+            # keeps every Text looking the same to a reader.
+            following = lines[index + 1] if index + 1 < len(lines) else ""
+            if following.strip() != "textFormat: Text.PlainText":
+                missing.append(index + 1)
+
+        self.assertEqual(
+            missing, [],
+            "Panel.qml lines %s open a Text without `textFormat: "
+            "Text.PlainText` on the next line. The default AutoText renders "
+            "HTML-shaped content as rich text in the shared shell process."
+            % missing)
+
+
 def node_binary():
     return shutil.which("node")
 
