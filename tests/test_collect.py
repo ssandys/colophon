@@ -44,6 +44,11 @@ class ModelsRootTest(unittest.TestCase):
     def test_falls_back_when_unset(self):
         self.assertEqual(collect.models_root({}), "/var/lib/ollama")
 
+    def test_user_source_falls_back_to_the_user_model_store(self):
+        source = collect.LiveSource("http://127.0.0.1:11434", "user")
+        self.assertEqual(source.models_root({}),
+                         os.path.expanduser("~/.ollama/models"))
+
     def test_falls_back_on_unbalanced_quotes(self):
         # shlex raises on this; the fallback must not crash the poll.
         show = {"Environment": 'OLLAMA_MODELS="/srv/models'}
@@ -701,6 +706,16 @@ class CommandLineTest(unittest.TestCase):
         result = self.run_cli("stopped", ["--wat"])
         self.assertEqual(result.returncode, 2)
         self.assertIn("unknown argument", result.stderr)
+
+    def test_an_unknown_systemd_scope_exits_two(self):
+        result = self.run_cli(
+            "stopped", ["--systemd-scope", "session"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("system or user", result.stderr)
+
+    def test_user_systemd_scope_is_accepted(self):
+        result = self.run_cli("stopped", ["--systemd-scope", "user"])
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_broken_fixture_exits_one_with_a_message(self):
         env = dict(os.environ)

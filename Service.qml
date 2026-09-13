@@ -94,6 +94,7 @@ Item {
   readonly property int idleInterval: setting("pollIntervalIdleSec", 30)
   readonly property int keepAliveMinutes: setting("keepAliveMinutes", 5)
   readonly property string apiBase: setting("apiBase", "http://127.0.0.1:11434")
+  readonly property string systemdScope: setting("systemdScope", "System").toLowerCase()
   readonly property bool showInstalledModels: setting("showInstalledModels", true)
   readonly property bool notifyServiceDied: setting("notifyServiceDied", true)
 
@@ -109,7 +110,8 @@ Item {
     root.pendingRefresh = false
     root.loading = true
     collectProc.command = ["python3", root.collectPath,
-                           "--api-base", root.apiBase]
+                           "--api-base", root.apiBase,
+                           "--systemd-scope", root.systemdScope]
     collectProc.running = true
   }
 
@@ -280,6 +282,7 @@ Item {
     var args = ["python3", root.actionPath, verb]
     if (target) args.push(target)
     args.push("--api-base", root.apiBase)
+    args.push("--systemd-scope", root.systemdScope)
     if (extraArgs) for (var j = 0; j < extraArgs.length; j++) args.push(extraArgs[j])
     if (verb === "warm") args.push("--keep-alive", String(root.keepAliveMinutes))
     if (kind) args.push("--kind", kind)

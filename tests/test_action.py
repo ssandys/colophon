@@ -38,6 +38,13 @@ class PlanTest(unittest.TestCase):
                                 "http://127.0.0.1:11434", False),
                     ["/usr/bin/systemctl " + verb + " ollama.service"])
 
+    def test_user_scope_adds_the_user_manager_flag(self):
+        self.assertEqual(
+            action.plan("start", "", "generate", 5,
+                        "http://127.0.0.1:11434", False,
+                        systemd_scope="user"),
+            ["/usr/bin/systemctl --user start ollama.service"])
+
     def test_the_prompt_is_never_suppressed(self):
         # --no-ask-password sets allow_interactive_authorization=false on the
         # D-Bus call, which turns Omarchy's authentication dialog into a bare
@@ -144,6 +151,13 @@ class DryRunTest(unittest.TestCase):
             result.stdout.strip(),
             "/usr/bin/systemctl start ollama.service")
 
+    def test_user_scope_dry_run_prints_the_user_command(self):
+        result = run(["start", "--systemd-scope", "user", "--dry-run"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            "/usr/bin/systemctl --user start ollama.service")
+
     def test_dry_run_prints_the_maximal_warm_plan(self):
         # A dry run performs no I/O, so it cannot know whether the server is
         # up; it prints the full plan, which is what a reviewer needs to see.
@@ -164,8 +178,23 @@ class DryRunTest(unittest.TestCase):
             capture_output=True, text=True).stdout.strip()
         self.assertEqual(before, after)
 
+    def test_dry_run_never_touches_the_user_service(self):
+        before = subprocess.run(
+            ["systemctl", "--user", "is-active", "ollama.service"],
+            capture_output=True, text=True).stdout.strip()
+        run(["restart", "--systemd-scope", "user", "--dry-run"])
+        after = subprocess.run(
+            ["systemctl", "--user", "is-active", "ollama.service"],
+            capture_output=True, text=True).stdout.strip()
+        self.assertEqual(before, after)
+
 
 class ArgumentTest(unittest.TestCase):
+    def test_an_unknown_systemd_scope_exits_two(self):
+        result = run(["start", "--systemd-scope", "session", "--dry-run"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("system or user", result.stderr)
+
     def test_an_unknown_verb_exits_two(self):
         result = run(["frobnicate", "--dry-run"])
         self.assertEqual(result.returncode, 2)
