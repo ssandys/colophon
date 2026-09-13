@@ -43,6 +43,7 @@ class ManifestTest(unittest.TestCase):
             "pollIntervalOpenSec",
             "pollIntervalRunningSec",
             "showInstalledModels",
+            "systemdScope",
         ]
         widget = load_manifest()["barWidget"]
         self.assertEqual(sorted(widget["defaults"].keys()), expected)

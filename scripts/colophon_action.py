@@ -29,6 +29,8 @@ import urllib.request
 
 UNIT_NAME = "ollama.service"
 SYSTEMCTL = "/usr/bin/systemctl"
+SYSTEMD_SCOPES = ("system", "user")
+DEFAULT_SYSTEMD_SCOPE = "system"
 
 LIFECYCLE_VERBS = ("start", "stop", "restart")
 BOOT_VERBS = ("enable", "disable")
@@ -83,17 +85,15 @@ POLL_SLEEP_SEC = 0.5
 MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]+\Z")
 
 
-def systemctl_command(verb):
-    # No --no-ask-password. That flag sets allow_interactive_authorization to
-    # false on the D-Bus call, so polkitd answers without ever consulting an
-    # agent -- which is what turns Omarchy's authentication dialog into a bare
-    # "Access denied". Omitting it lets polkitd raise the dialog and
-    # pam_fprintd take a fingerprint -- but every call still prompts:
-    # systemctl is its own short-lived polkit subject and exits within the
-    # same second, so there is no auth_admin_keep grant left alive to reuse.
-    # See AGENTS.md trap #31. No tty is involved at any point; polkit
-    # authentication has never gone through one.
-    return [SYSTEMCTL, verb, UNIT_NAME]
+def systemctl_command(verb, systemd_scope=DEFAULT_SYSTEMD_SCOPE):
+    # System units deliberately omit --no-ask-password so Omarchy's polkit
+    # agent can prompt. User units need neither polkit nor a tty; --user sends
+    # the request to the caller's own systemd manager.
+    command = [SYSTEMCTL]
+    if systemd_scope == "user":
+        command.append("--user")
+    command.extend((verb, UNIT_NAME))
+    return command
 
 
 def endpoint_for(kind):
@@ -120,12 +120,13 @@ def create_body(model, params):
     return {"model": model, "from": model, "parameters": dict(params)}
 
 
-def plan(verb, target, kind, keep_alive_min, api_base, running, params=None):
+def plan(verb, target, kind, keep_alive_min, api_base, running, params=None,
+         systemd_scope=DEFAULT_SYSTEMD_SCOPE):
     """The steps this verb would perform, as human-readable lines."""
     if params is None:
         params = {}
     if verb in SYSTEMCTL_VERBS:
-        return [" ".join(systemctl_command(verb))]
+        return [" ".join(systemctl_command(verb, systemd_scope))]
 
     if verb in PARAM_VERBS:
         return ["POST " + str(api_base).rstrip("/") + "/api/create "
@@ -135,7 +136,7 @@ def plan(verb, target, kind, keep_alive_min, api_base, running, params=None):
     keep_alive = 0 if verb == "unload" else str(int(keep_alive_min)) + "m"
     steps = []
     if verb == "warm" and not running:
-        steps.append(" ".join(systemctl_command("start")))
+        steps.append(" ".join(systemctl_command("start", systemd_scope)))
         steps.append("WAIT " + base + "/api/version up to "
                      + str(API_WAIT_DEADLINE_SEC) + "s")
     steps.append("POST " + base + endpoint_for(kind) + " "
@@ -199,8 +200,8 @@ def post_json(url, body):
         return 1
 
 
-def run_systemctl(verb):
-    command = systemctl_command(verb)
+def run_systemctl(verb, systemd_scope=DEFAULT_SYSTEMD_SCOPE):
+    command = systemctl_command(verb, systemd_scope)
     try:
         completed = subprocess.run(command, capture_output=True, text=True,
                                    timeout=SYSTEMCTL_TIMEOUT_SEC)
@@ -219,16 +220,17 @@ def run_systemctl(verb):
     return 0
 
 
-def execute(verb, target, kind, keep_alive_min, api_base, params=None):
+def execute(verb, target, kind, keep_alive_min, api_base, params=None,
+            systemd_scope=DEFAULT_SYSTEMD_SCOPE):
     if verb in SYSTEMCTL_VERBS:
-        return run_systemctl(verb)
+        return run_systemctl(verb, systemd_scope)
 
     if verb in PARAM_VERBS:
         return post_json(str(api_base).rstrip("/") + "/api/create",
                          create_body(target, params or {}))
 
     if verb == "warm" and not api_reachable(api_base):
-        code = run_systemctl("start")
+        code = run_systemctl("start", systemd_scope)
         if code != 0:
             return code
         if not wait_for_api(api_base, API_WAIT_DEADLINE_SEC):
@@ -258,6 +260,7 @@ def main(argv):
     keep_alive_raw = DEFAULT_KEEP_ALIVE_MIN
     api_base = DEFAULT_API_BASE
     params = {}
+    systemd_scope = DEFAULT_SYSTEMD_SCOPE
     while args:
         arg = args.pop(0)
         if arg == "--dry-run":
@@ -268,6 +271,8 @@ def main(argv):
             keep_alive_raw = args.pop(0)
         elif arg == "--api-base" and args:
             api_base = args.pop(0)
+        elif arg == "--systemd-scope" and args:
+            systemd_scope = args.pop(0).lower()
         elif arg == "--param" and args:
             raw = args.pop(0)
             if "=" not in raw:
@@ -310,6 +315,10 @@ def main(argv):
     if kind not in KINDS:
         sys.stderr.write("colophon_action: unknown kind '" + kind + "'\n")
         return 2
+    if systemd_scope not in SYSTEMD_SCOPES:
+        sys.stderr.write(
+            "colophon_action: --systemd-scope must be system or user\n")
+        return 2
     try:
         keep_alive_min = int(keep_alive_raw)
     except (TypeError, ValueError):
@@ -343,11 +352,11 @@ def main(argv):
 
     if dry_run:
         for line in plan(verb, target, kind, keep_alive_min, api_base, False,
-                         params=params):
+                         params=params, systemd_scope=systemd_scope):
             sys.stdout.write(line + "\n")
         return 0
     return execute(verb, target, kind, keep_alive_min, api_base,
-                   params=params)
+                   params=params, systemd_scope=systemd_scope)
 
 
 if __name__ == "__main__":

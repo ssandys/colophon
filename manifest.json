@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ssandys.colophon",
   "name": "Colophon",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "author": "Sean Sandys",
   "license": "MIT",
   "description": "Ollama server status and control in the bar: start, stop, restart, start-at-boot, loaded and installed models, and per-model parameter editing. Summon with: omarchy-shell shell toggle ssandys.colophon",
@@ -20,6 +20,7 @@
       "pollIntervalIdleSec": 30,
       "keepAliveMinutes": 5,
       "apiBase": "http://127.0.0.1:11434",
+      "systemdScope": "System",
       "showInstalledModels": true,
       "notifyServiceDied": true
     },
@@ -29,6 +30,7 @@
       { "key": "pollIntervalIdleSec", "type": "integer", "label": "Poll interval while the server is stopped (seconds)", "min": 5, "max": 300, "step": 5, "defaultValue": 30 },
       { "key": "keepAliveMinutes", "type": "integer", "label": "Keep a warmed model loaded for (minutes)", "min": 1, "max": 120, "step": 1, "defaultValue": 5 },
       { "key": "apiBase", "type": "string", "label": "Ollama API base URL", "defaultValue": "http://127.0.0.1:11434" },
+      { "key": "systemdScope", "type": "enum", "label": "Ollama systemd service", "options": ["System", "User"], "defaultValue": "System", "description": "Choose System for /usr/lib/systemd/system/ollama.service or User for ~/.config/systemd/user/ollama.service." },
       { "key": "showInstalledModels", "type": "boolean", "label": "Show the installed model list", "defaultValue": true },
       { "key": "notifyServiceDied", "type": "boolean", "label": "Notify when the service dies unexpectedly", "defaultValue": true }
     ]

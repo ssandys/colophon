@@ -246,6 +246,11 @@ class SettingsDefaultTest(unittest.TestCase):
                 else:
                     self.assertEqual(literal.strip('"'), expected)
 
+    def test_service_passes_the_scope_to_both_python_helpers(self):
+        source = read("Service.qml")
+        self.assertEqual(source.count('"--systemd-scope"'), 2)
+        self.assertIn('"--systemd-scope", root.systemdScope', source)
+
 
 class KindRoutingTest(unittest.TestCase):
     def test_the_embedding_family_list_exists_only_in_python(self):

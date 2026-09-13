@@ -57,7 +57,8 @@ import re
 import shlex
 import stat
 
-DEFAULT_MODELS_ROOT = "/var/lib/ollama"
+DEFAULT_SYSTEM_MODELS_ROOT = "/var/lib/ollama"
+DEFAULT_USER_MODELS_ROOT = os.path.expanduser("~/.ollama/models")
 
 # systemd's "this property has no value" sentinel for unsigned integers.
 UINT64_MAX = 18446744073709551615
@@ -120,18 +121,18 @@ def parse_show(text):
     return result
 
 
-def models_root(show):
+def models_root(show, fallback=DEFAULT_SYSTEM_MODELS_ROOT):
     """Where the model store lives, per the unit's own Environment."""
     raw = (show or {}).get("Environment", "")
     try:
         tokens = shlex.split(raw)
     except ValueError:
         # Unbalanced quotes must not take the whole poll down.
-        return DEFAULT_MODELS_ROOT
+        return fallback
     for token in tokens:
         if token.startswith("OLLAMA_MODELS="):
             return token.split("=", 1)[1]
-    return DEFAULT_MODELS_ROOT
+    return fallback
 
 
 def memory_bytes(show):
@@ -416,6 +417,8 @@ SCHEMA_VERSION = 1
 DEFAULT_API_BASE = "http://127.0.0.1:11434"
 SYSTEMCTL = "/usr/bin/systemctl"
 OLLAMA = "ollama"
+SYSTEMD_SCOPES = ("system", "user")
+DEFAULT_SYSTEMD_SCOPE = "system"
 
 SHOW_TIMEOUT_SEC = 5
 API_TIMEOUT_SEC = 2
@@ -461,15 +464,20 @@ def parse_client_version(text):
 
 
 class LiveSource(object):
-    def __init__(self, api_base):
+    def __init__(self, api_base, systemd_scope=DEFAULT_SYSTEMD_SCOPE):
         self.api_base = api_base
+        self.systemd_scope = systemd_scope
         self._show = None
 
     def show_text(self):
         if self._show is not None:
             return self._show
-        command = [SYSTEMCTL, "show", UNIT_NAME,
-                   "--property=" + ",".join(SHOW_PROPERTIES), "--no-pager"]
+        command = [SYSTEMCTL]
+        if self.systemd_scope == "user":
+            command.append("--user")
+        command.extend(("show", UNIT_NAME,
+                        "--property=" + ",".join(SHOW_PROPERTIES),
+                        "--no-pager"))
         try:
             completed = subprocess.run(command, capture_output=True, text=True,
                                        timeout=SHOW_TIMEOUT_SEC)
@@ -510,7 +518,10 @@ class LiveSource(object):
                                     (completed.stderr or ""))
 
     def models_root(self, show):
-        return models_root(show)
+        fallback = (DEFAULT_USER_MODELS_ROOT
+                    if self.systemd_scope == "user"
+                    else DEFAULT_SYSTEM_MODELS_ROOT)
+        return models_root(show, fallback)
 
 
 class FixtureSource(object):
@@ -602,19 +613,27 @@ def collect(source, now_sec, uptime_sec):
 
 def main(argv):
     api_base = DEFAULT_API_BASE
+    systemd_scope = DEFAULT_SYSTEMD_SCOPE
     args = list(argv)
     while args:
         arg = args.pop(0)
         if arg == "--api-base" and args:
             api_base = args.pop(0)
+        elif arg == "--systemd-scope" and args:
+            systemd_scope = args.pop(0).lower()
         else:
             sys.stderr.write(
                 "colophon_collect: unknown argument '" + arg + "'\n")
             return 2
 
+    if systemd_scope not in SYSTEMD_SCOPES:
+        sys.stderr.write(
+            "colophon_collect: --systemd-scope must be system or user\n")
+        return 2
+
     fixture = os.environ.get("COLOPHON_FIXTURE", "")
     source = (FixtureSource(fixture, api_base) if fixture
-              else LiveSource(api_base))
+              else LiveSource(api_base, systemd_scope))
     try:
         snapshot = collect(source, time.time(), uptime_seconds())
     except CollectError as error:
