@@ -229,6 +229,20 @@ class ArgumentTest(unittest.TestCase):
                 result = run(["warm", "x:1", "--keep-alive", value, "--dry-run"])
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_a_lifecycle_verb_refuses_a_stray_positional(self):
+        # `start evil` parsed "evil" as a model and silently ignored it. The
+        # command built is constant either way, so nothing was exploitable --
+        # but this script does not get to assume its caller is well-formed.
+        for verb in action.SYSTEMCTL_VERBS:
+            result = run([verb, "some-model", "--dry-run"])
+            self.assertEqual(result.returncode, 2, verb)
+            self.assertIn("takes no model", result.stderr)
+
+    def test_a_lifecycle_verb_still_runs_with_no_positional(self):
+        for verb in action.SYSTEMCTL_VERBS:
+            result = run([verb, "--dry-run"])
+            self.assertEqual(result.returncode, 0, verb)
+
     def test_a_malformed_api_base_is_rejected(self):
         # Otherwise this fails api_reachable() like an ordinary refusal and
         # warm starts the LOCAL unit because of a typo in an unrelated flag.
@@ -243,6 +257,68 @@ class ArgumentTest(unittest.TestCase):
             with self.subTest(api_base=good):
                 result = run(["warm", "x:1", "--api-base", good, "--dry-run"])
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class LoopbackGuardTest(unittest.TestCase):
+    """`warm` may start the local unit. It must not do so for a remote base.
+
+    api_reachable() cannot tell a remote host that is asleep from a local one
+    that is stopped -- both are just a refused connection -- so warm against a
+    remote apiBase started the LOCAL service and raised an authentication
+    prompt on the wrong machine. apiBase is a free-text setting
+    (manifest.json), and README says one local instance is the supported
+    scope; this is where that scope gets enforced rather than assumed.
+
+    execute() is driven with the subprocess and network boundaries stubbed:
+    the whole point is that run_systemctl is never reached, and a test that
+    got that wrong would start the real ollama.service.
+    """
+
+    def stub(self, **replacements):
+        for name, value in replacements.items():
+            self.addCleanup(setattr, action, name, getattr(action, name))
+            setattr(action, name, value)
+
+    def warm(self, api_base):
+        """Run execute('warm') against api_base; return (code, started)."""
+        started = []
+        self.stub(api_reachable=lambda *a, **k: False,
+                  run_systemctl=lambda verb: started.append(verb) or 0,
+                  wait_for_api=lambda *a, **k: True,
+                  post_json=lambda *a, **k: 0)
+        code = action.execute("warm", "llama3.2:3b", "generate", 5, api_base)
+        return code, started
+
+    def test_a_loopback_base_may_still_start_the_local_unit(self):
+        code, started = self.warm("http://127.0.0.1:11434")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(started, ["start"])
+
+    def test_a_remote_base_never_starts_the_local_unit(self):
+        code, started = self.warm("http://10.0.0.9:11434")
+
+        self.assertNotEqual(code, 0)
+        self.assertEqual(started, [])
+
+    def test_the_loopback_forms_are_recognised(self):
+        for base in ("http://127.0.0.1:11434", "http://localhost:11434",
+                     "http://127.0.0.53:11434", "http://[::1]:11434",
+                     "https://127.0.0.1/"):
+            self.assertTrue(action.is_loopback(base), base)
+
+    def test_a_remote_or_unparseable_host_is_not_loopback(self):
+        for base in ("http://10.0.0.9:11434", "http://gpu-box.lan:11434",
+                     "http://127.0.0.1.evil.example/", "http://",
+                     "http://0.0.0.0:11434"):
+            self.assertFalse(action.is_loopback(base), base)
+
+    def test_the_plan_for_a_remote_base_shows_no_local_start(self):
+        steps = action.plan("warm", "x:1", "generate", 5,
+                            "http://10.0.0.9:11434", False)
+
+        self.assertEqual(len(steps), 1)
+        self.assertIn("POST http://10.0.0.9:11434/api/generate", steps[0])
 
 
 class SetParamsTest(unittest.TestCase):
@@ -270,6 +346,24 @@ class SetParamsTest(unittest.TestCase):
                 result = run(args + ["--dry-run"])
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn("must be between", result.stderr)
+
+    def test_a_non_finite_parameter_is_refused(self):
+        # nan defeats a range check outright: `nan < low` and `nan > high` are
+        # both False, so it passed and json.dumps emitted a bare NaN token --
+        # not valid JSON per RFC 8259, which Ollama's Go decoder rejects.
+        # Model.js:248 refuses it on the panel side; this is the layer that
+        # writes, and it does not get to assume the caller clamped.
+        for text in ("nan", "NaN", "-nan", "infinity", "-infinity"):
+            result = run(["set-params", "m", "--param", "temperature=" + text,
+                          "--dry-run"])
+            self.assertEqual(result.returncode, 2, text)
+            self.assertIn("must be a number", result.stderr)
+
+    def test_a_finite_parameter_at_the_bounds_is_still_accepted(self):
+        for text in ("0.0", "2.0", "1.5"):
+            result = run(["set-params", "m", "--param", "temperature=" + text,
+                          "--dry-run"])
+            self.assertEqual(result.returncode, 0, text)
 
     def test_an_unknown_parameter_is_refused(self):
         # The editor owns two keys. Accepting a third here would let the write

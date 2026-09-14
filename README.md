@@ -263,7 +263,10 @@ readable.
 ## Known limitations
 
 - One local Ollama instance only; remote or multiple `OLLAMA_HOST` targets
-  are out of scope.
+  are out of scope. If you point the `apiBase` setting at another machine,
+  Colophon will talk to it, but `warm` will no longer start a server for you:
+  starting one is a local, privileged act, and a remote endpoint that doesn't
+  answer is not a reason to start the service on *this* machine.
 - `foreign` cannot distinguish a hand-run `ollama serve` from any other
   process bound to the same port. It reports "not managed by systemd,"
   which is true either way.

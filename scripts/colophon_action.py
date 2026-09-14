@@ -19,12 +19,15 @@ logic that fails silently on a one-sided edit.
 """
 
 import http.client
+import ipaddress
 import json
+import math
 import re
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 UNIT_NAME = "ollama.service"
@@ -83,6 +86,29 @@ POLL_SLEEP_SEC = 0.5
 MODEL_RE = re.compile(r"^[A-Za-z0-9._:/-]+\Z")
 
 
+def is_loopback(api_base):
+    """Does this base URL name this machine?
+
+    `warm` is allowed to start the local unit when the API does not answer,
+    and api_reachable() cannot tell a remote host that is asleep from a local
+    one that is stopped -- both are a refused connection. Without this, warm
+    against a remote apiBase started the LOCAL service and raised an
+    authentication prompt on the wrong machine. apiBase is a free-text
+    setting, and README scopes Colophon to one local instance.
+    """
+    host = urllib.parse.urlsplit(str(api_base)).hostname
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        # A name we cannot resolve to a literal is not one we will start a
+        # privileged service for -- "127.0.0.1.evil.example" is not local.
+        return False
+
+
 def systemctl_command(verb):
     # No --no-ask-password. That flag sets allow_interactive_authorization to
     # false on the D-Bus call, so polkitd answers without ever consulting an
@@ -134,7 +160,7 @@ def plan(verb, target, kind, keep_alive_min, api_base, running, params=None):
     base = str(api_base).rstrip("/")
     keep_alive = 0 if verb == "unload" else str(int(keep_alive_min)) + "m"
     steps = []
-    if verb == "warm" and not running:
+    if verb == "warm" and not running and is_loopback(api_base):
         steps.append(" ".join(systemctl_command("start")))
         steps.append("WAIT " + base + "/api/version up to "
                      + str(API_WAIT_DEADLINE_SEC) + "s")
@@ -228,6 +254,11 @@ def execute(verb, target, kind, keep_alive_min, api_base, params=None):
                          create_body(target, params or {}))
 
     if verb == "warm" and not api_reachable(api_base):
+        if not is_loopback(api_base):
+            sys.stderr.write(
+                "colophon: " + str(api_base) + " did not answer, and it is "
+                "not this machine -- refusing to start the local service\n")
+            return 1
         code = run_systemctl("start")
         if code != 0:
             return code
@@ -283,6 +314,11 @@ def main(argv):
             low, high, is_int = PARAM_BOUNDS[key]
             try:
                 value = int(value_text) if is_int else float(value_text)
+                # nan defeats a range check outright: `nan < low` and
+                # `nan > high` are both False. json.dumps would then emit a
+                # bare NaN token, which is not JSON per RFC 8259.
+                if not math.isfinite(value):
+                    raise ValueError("not a finite number")
             except ValueError:
                 sys.stderr.write(
                     "colophon_action: " + key + " must be "
@@ -306,6 +342,11 @@ def main(argv):
     if verb in PARAM_VERBS and not params:
         sys.stderr.write(
             "colophon_action: set-params needs at least one --param\n")
+        return 2
+    if verb in SYSTEMCTL_VERBS and target:
+        sys.stderr.write(
+            "colophon_action: " + verb + " takes no model argument, got '"
+            + target + "'\n")
         return 2
     if kind not in KINDS:
         sys.stderr.write("colophon_action: unknown kind '" + kind + "'\n")
