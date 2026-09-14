@@ -553,6 +553,30 @@ class UntrustedStoreTest(unittest.TestCase):
             self.assertEqual(len(entries[0]["parameterSize"]),
                              collect.MAX_FIELD_CHARS)
 
+    def test_a_non_numeric_layer_size_costs_that_model_only(self):
+        # scan_installed checks the *shape* of config and layers but coerces
+        # `size` with a bare int(), so one manifest declaring "huge" raised
+        # and took down the whole inventory -- the exact outcome the comment
+        # above that loop promises it avoids.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "models")
+            base = os.path.join(root, "manifests", "registry.ollama.ai",
+                                "library")
+            for name, size in (("good", 7), ("evil", "huge")):
+                directory = os.path.join(base, name)
+                os.makedirs(directory)
+                with open(os.path.join(directory, "latest"), "w") as handle:
+                    json.dump({"config": {"digest": "sha256:" + self.HEX,
+                                          "size": size},
+                               "layers": []}, handle)
+
+            entries, _ = collect.scan_installed(root)
+
+            sizes = dict((entry["name"], entry["sizeBytes"])
+                         for entry in entries)
+            self.assertEqual(sizes, {"good:latest": 7, "evil:latest": 0})
+
     def test_the_number_of_models_is_capped(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
@@ -568,6 +592,69 @@ class UntrustedStoreTest(unittest.TestCase):
             entries, _ = collect.scan_installed(root)
 
             self.assertEqual(len(entries), collect.MAX_MODELS)
+
+
+class UntrustedApiTest(unittest.TestCase):
+    """The local API is input too, and the disk store's caps never reached it.
+
+    `scan_installed` caps the number of models and the length of every string
+    it lifts off disk; `normalize_loaded` shapes /api/ps and did neither, so
+    the only bound on what reached the panel was MAX_API_BYTES. A local port
+    is not automatically a trusted one -- while the unit is stopped, any
+    process on this machine can bind 11434 and answer -- and every field here
+    becomes a Text item inside the shared shell process.
+    """
+
+    def test_a_payload_that_is_not_an_object_is_empty_not_a_traceback(self):
+        # json.loads is happy to return a list, a string or a number, and
+        # _read_json already refuses all three for exactly this reason. Only
+        # CollectError is caught in main(), so an AttributeError here leaves
+        # the panel showing a raw traceback instead of an inventory.
+        for payload in ([1], "models", 5, 0.5, True):
+            self.assertEqual(collect.normalize_loaded(payload), [],
+                             repr(payload))
+
+    def test_an_entry_that_is_not_an_object_is_skipped(self):
+        loaded = collect.normalize_loaded(
+            {"models": ["not-a-dict", None, 7, {"name": "real:latest"}]})
+
+        self.assertEqual([entry["name"] for entry in loaded], ["real:latest"])
+
+    def test_a_non_numeric_size_degrades_to_zero(self):
+        loaded = collect.normalize_loaded(
+            {"models": [{"name": "m", "size": "huge", "size_vram": {}}]})
+
+        self.assertEqual(loaded[0]["sizeBytes"], 0)
+        self.assertEqual(loaded[0]["vramBytes"], 0)
+
+    def test_a_negative_size_is_floored_at_zero(self):
+        # A byte count is never negative, and loadedBytes sums these straight
+        # into the summary the panel renders.
+        loaded = collect.normalize_loaded(
+            {"models": [{"name": "m", "size": -5, "size_vram": -5}]})
+
+        self.assertEqual(loaded[0]["sizeBytes"], 0)
+        self.assertEqual(loaded[0]["vramBytes"], 0)
+
+    def test_the_number_of_loaded_models_is_capped(self):
+        payload = {"models": [{"name": "m%04d" % index}
+                              for index in range(collect.MAX_MODELS + 5)]}
+
+        self.assertEqual(len(collect.normalize_loaded(payload)),
+                         collect.MAX_MODELS)
+
+    def test_a_long_api_string_is_truncated_before_it_reaches_the_panel(self):
+        loaded = collect.normalize_loaded({"models": [{
+            "name": "n" * 5000,
+            "details": {"parameter_size": "p" * 5000,
+                        "quantization_level": "q" * 5000},
+        }]})
+
+        self.assertEqual(len(loaded[0]["name"]), collect.MAX_FIELD_CHARS)
+        self.assertEqual(len(loaded[0]["parameterSize"]),
+                         collect.MAX_FIELD_CHARS)
+        self.assertEqual(len(loaded[0]["quantization"]),
+                         collect.MAX_FIELD_CHARS)
 
 
 class UnitFromShowTest(unittest.TestCase):
@@ -748,3 +835,74 @@ class ApiGetFailureTest(unittest.TestCase):
         # Treated as "did not answer", exactly like a refused connection.
         self.assertIsNone(payload)
         self.assertIsNone(latency)
+
+    def serve(self, handler):
+        """Run `handler` on a loopback port and return its base URL."""
+        import http.server
+        import threading
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return "http://127.0.0.1:" + str(server.server_address[1])
+
+    def test_a_response_that_is_not_a_json_object_is_refused(self):
+        # Every caller unwraps the payload with .get(). _read_json refuses a
+        # non-dict on disk for that reason; the API path never did, so a
+        # top-level list answered by whatever holds the port reached
+        # `(payload or {}).get("version")` and raised.
+        import http.server
+
+        class NotAnObject(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'[{"version": "0.0.0"}]'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass  # keep test output pristine
+
+        payload, latency = collect.api_get(
+            self.serve(NotAnObject), "/api/version", 2)
+
+        self.assertIsNone(payload)
+        self.assertIsNone(latency)
+
+    def test_a_body_over_the_cap_is_refused(self):
+        # Characterization, not a guard: it is written against whatever
+        # MAX_API_BYTES happens to be, so it passed before the cap came down
+        # to a megabyte and passes after. Kept because nothing else drives the
+        # collector's byte cap over a real socket. The size the cap should be
+        # is pinned by test_the_two_scripts_agree_on_the_body_cap instead.
+        import http.server
+
+        oversized = collect.MAX_API_BYTES + 1
+
+        class TooBig(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'{"pad":"' + b"x" * oversized + b'"}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass  # keep test output pristine
+
+        payload, latency = collect.api_get(self.serve(TooBig), "/api/ps", 10)
+
+        self.assertIsNone(payload)
+        self.assertIsNone(latency)
+
+    def test_the_two_scripts_agree_on_the_body_cap(self):
+        sys.path.insert(0, os.path.join(ROOT, "scripts"))
+        import colophon_action as action
+
+        self.assertEqual(collect.MAX_API_BYTES, action.MAX_API_BYTES)

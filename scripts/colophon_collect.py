@@ -92,7 +92,7 @@ EMBED_FAMILIES = ("bert", "nomic-bert", "xlm-roberta")
 # byte limit, rejection of non-regular and symlinked inputs, and a cap on the
 # number and size of records. That is what the four limits below are.
 MAX_JSON_BYTES = 1 << 20
-MAX_API_BYTES = 8 << 20
+MAX_API_BYTES = 1 << 20
 MAX_MODELS = 512
 MAX_FIELD_CHARS = 256
 
@@ -234,22 +234,54 @@ def model_label(registry, namespace, name, tag):
     return namespace + "/" + name + ":" + tag
 
 
+def _int(value):
+    """A number lifted out of untrusted JSON, floored at zero.
+
+    Neither the model store nor the API is ours to trust for a type, and a
+    bare int() raises on a string that is not a numeral and on a dict or a
+    list. Every caller here wants a byte count, which is never negative.
+    """
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 def normalize_loaded(payload):
-    models = ((payload or {}).get("models") or [])
+    """Shape /api/ps, which is untrusted input exactly as the store is.
+
+    A local port is not automatically a trusted one: while the unit is
+    stopped, any process on this machine can bind 11434 and answer, and every
+    field below becomes a Text item inside the shared shell process. So this
+    carries the same caps scan_installed applies to the disk store -- a bound
+    on the number of records and on the length of each string -- and the same
+    per-record shape checks, so one bad entry costs that entry rather than the
+    whole list.
+    """
+    if not isinstance(payload, dict):
+        return []
+    models = payload.get("models")
+    if not isinstance(models, list):
+        return []
     result = []
-    for entry in models:
-        details = entry.get("details") or {}
-        kind_source, percent = processor(entry.get("size"),
-                                        entry.get("size_vram"))
+    for entry in models[:MAX_MODELS]:
+        if not isinstance(entry, dict):
+            continue
+        details = entry.get("details")
+        if not isinstance(details, dict):
+            details = {}
+        size = _int(entry.get("size"))
+        vram = _int(entry.get("size_vram"))
+        kind_source, percent = processor(size, vram)
         result.append({
-            "name": entry.get("name") or entry.get("model") or "",
-            "sizeBytes": int(entry.get("size") or 0),
-            "vramBytes": int(entry.get("size_vram") or 0),
+            "name": _short(entry.get("name") or entry.get("model") or ""),
+            "sizeBytes": size,
+            "vramBytes": vram,
             "processor": kind_source,
             "gpuPercent": percent,
             "expiresAt": parse_rfc3339(entry.get("expires_at")),
-            "parameterSize": details.get("parameter_size") or "",
-            "quantization": details.get("quantization_level") or "",
+            "parameterSize": _short(details.get("parameter_size") or ""),
+            "quantization": _short(details.get("quantization_level") or ""),
             "kind": model_kind(details.get("family")),
         })
     return result
@@ -359,7 +391,7 @@ def scan_installed(root):
             if not isinstance(layer, dict):
                 continue
             digest = layer.get("digest")
-            layer_size = int(layer.get("size") or 0)
+            layer_size = _int(layer.get("size"))
             size += layer_size
             if digest:
                 seen[digest] = layer_size
@@ -451,6 +483,10 @@ def api_get(api_base, path, timeout):
             payload = json.loads(body.decode("utf-8"))
     except (urllib.error.URLError, http.client.HTTPException, OSError,
             ValueError, TimeoutError):
+        return (None, None)
+    # Same check _read_json makes, for the same reason: every caller unwraps
+    # this with .get(), and json.loads is happy to return a list or a string.
+    if not isinstance(payload, dict):
         return (None, None)
     return (payload, int(round((time.monotonic() - started) * 1000)))
 
