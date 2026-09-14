@@ -52,7 +52,7 @@ Item {
   // object, not a ListModel: it is read by binding and never iterated in QML.
   //
   // Clears differently from every other bridge state here, deliberately. See
-  // AGENTS.md trap #19: optimisticStatus and optimisticBootState fail safe
+  // CONTRIBUTING.md trap #19: optimisticStatus and optimisticBootState fail safe
   // toward reality because a wrong value costs a flicker. This one fails safe
   // toward KEEPING the edit, because clearing early discards typing the user
   // cannot get back by waiting. It is never cleared by a poll -- only by a

@@ -343,7 +343,7 @@ test("bootIsToggleable is true for exactly the two states systemd can flip", () 
 test("optimisticStatusFor stays silent for the boot verbs", () => {
   // enable/disable change nothing about run state. Returning a run status here
   // would make the panel claim the service was starting when it was not --
-  // and would arm the wrong bridge state. See AGENTS.md trap #19: the boot
+  // and would arm the wrong bridge state. See CONTRIBUTING.md trap #19: the boot
   // toggle's optimistic value is separate, with its own clearing rule.
   assert.equal(Model.optimisticStatusFor("enable"), "")
   assert.equal(Model.optimisticStatusFor("disable"), "")

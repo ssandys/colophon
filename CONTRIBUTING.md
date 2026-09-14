@@ -1,4 +1,4 @@
-# AGENTS.md — extending Colophon
+# Contributing to Colophon
 
 Colophon is an Ollama server status and control bar widget for the Omarchy
 shell (Quickshell). This file is for an agent (or a human) changing the

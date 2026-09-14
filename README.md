@@ -40,7 +40,7 @@ a count.
 Also required: the Omarchy shell itself.
 
 There are no pip or npm dependencies at runtime — the Python side is stdlib-only
-by design (see `AGENTS.md` if you're extending it).
+by design (see `CONTRIBUTING.md` if you're extending it).
 
 Install anything missing with `omarchy pkg add <package>`.
 

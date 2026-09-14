@@ -12,7 +12,7 @@ Panel {
   // bin/dev rewrites the identity in the deployed copy only; the source tree
   // stays canonical. It derives its targets rather than naming them -- every
   // deployed file that is text -- so moving these into another file no longer
-  // strands them. That breadth was learned the hard way twice: see AGENTS.md's
+  // strands them. That breadth was learned the hard way twice: see CONTRIBUTING.md's
   // devkit section and issue #5.
   moduleName: "ssandys.colophon"
   ipcTarget: "ssandys.colophon"
@@ -305,7 +305,7 @@ Panel {
         // detail, so no polkit rule could ever scope it to this one unit --
         // which is why this was read-only until 2026-08-12. Colophon installs
         // no rule any more; it prompts. Prompted authorization has nothing to
-        // scope, so the missing detail stopped mattering. See AGENTS.md #28.
+        // scope, so the missing detail stopped mattering. See CONTRIBUTING.md #28.
         RowLayout {
           Layout.fillWidth: true
           Layout.leftMargin: Style.space(14)

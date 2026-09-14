@@ -20,7 +20,7 @@ var COLOR_BUSY = "#3b82f6"
 // U+EE86 is nf-fa-stamp -- a colophon is a printer's mark, and the sibling
 // plugin Galley wears a printer. Written as a \uXXXX escape and never as
 // the literal character: it is in the Unicode Private Use Area, and a PUA
-// character does not survive every editing path. See AGENTS.md trap #14.
+// character does not survive every editing path. See CONTRIBUTING.md trap #14.
 var BAR_GLYPH = "\uEE86"
 
 var BADGE_MAX = 9
@@ -166,7 +166,7 @@ function bootIsToggleable(unitFileState) {
 // invites making output worse. Bounds are mirrored in colophon_action.py,
 // which is the only surface that writes, and tests/test_cross_language.py
 // asserts the two agree along with Panel.qml -- a one-sided edit here fails
-// silently otherwise. See AGENTS.md trap #12.
+// silently otherwise. See CONTRIBUTING.md trap #12.
 //
 // `kinds` lists which collector-reported model kinds the parameter applies
 // to; paramSpecsFor filters on it so the editor hides what a model's kind

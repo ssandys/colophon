@@ -51,7 +51,7 @@ We chose not to install a deliberately over-broad rule on a working machine to t
 > rule and its installer are deleted, and Colophon now prompts through
 > Omarchy's own polkit agent. Nothing scopes a rule any more, so whether
 > `manage-unit-files` *could* be scoped stops being load-bearing — and the boot
-> toggle it was blocking is unblocked. See `AGENTS.md` trap #28 for the
+> toggle it was blocking is unblocked. See `CONTRIBUTING.md` trap #28 for the
 > corrected record, trap #30 for why the underlying premise was wrong at the
 > time of writing, and
 > `docs/superpowers/specs/2026-08-11-prompted-privilege-design.md` for the

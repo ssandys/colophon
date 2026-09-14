@@ -45,7 +45,7 @@ KINDS = ("generate", "embed")
 
 # key -> (min, max, is_int). Mirrored in Model.js's PARAM_SPECS; this is the
 # only surface that writes, and tests/test_cross_language.py asserts the two
-# agree along with Panel.qml. See AGENTS.md trap #12.
+# agree along with Panel.qml. See CONTRIBUTING.md trap #12.
 PARAM_BOUNDS = {
     "num_ctx": (4096, 131072, True),
     "temperature": (0.0, 2.0, False),
@@ -117,7 +117,7 @@ def systemctl_command(verb):
     # pam_fprintd take a fingerprint -- but every call still prompts:
     # systemctl is its own short-lived polkit subject and exits within the
     # same second, so there is no auth_admin_keep grant left alive to reuse.
-    # See AGENTS.md trap #31. No tty is involved at any point; polkit
+    # See CONTRIBUTING.md trap #31. No tty is involved at any point; polkit
     # authentication has never gone through one.
     return [SYSTEMCTL, verb, UNIT_NAME]
 

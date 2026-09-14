@@ -149,7 +149,7 @@ class BarGlyphTest(unittest.TestCase):
     before this test existed.
     """
 
-    BAR_GLYPH = "\\uEE86"   # U+EE86 nf-fa-stamp; see AGENTS.md trap #14
+    BAR_GLYPH = "\\uEE86"   # U+EE86 nf-fa-stamp; see CONTRIBUTING.md trap #14
 
     def model_js_glyph(self):
         match = re.search(r'var BAR_GLYPH = "([^"]*)"', read("Model.js"))
@@ -313,7 +313,7 @@ class ParamSpecTest(unittest.TestCase):
     """The two parameters and their bounds live in three files. A one-sided
     edit fails silently: the panel would clamp to one range while the script
     refused another, and the user would see a field that will not commit with
-    no error explaining why. See AGENTS.md trap #12.
+    no error explaining why. See CONTRIBUTING.md trap #12.
 
     Narrowed from four parameters to two in task 6b -- top_p and top_k are
     gone from all three surfaces, and KEYS below shrank to match.
