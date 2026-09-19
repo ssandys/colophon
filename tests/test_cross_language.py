@@ -453,21 +453,64 @@ class ParamWriteGuardTest(unittest.TestCase):
                 "renders it rounded and clamped, and both transforms are "
                 "lossy.")
 
-    def test_a_destroyed_parameter_field_releases_the_focus_count(self):
+    def test_the_key_catcher_reads_qt_focus_rather_than_mirroring_it(self):
+        """`blocked` must be DERIVED from Qt's own activeFocusItem.
+
+        Traps #32 and #39 are the same lesson twice: every mirror of Qt focus
+        state on this branch has disagreed with Qt at least once. The counter
+        this replaces needed four compensating mechanisms and still stranded
+        above zero when a delegate was DESTROYED, because destruction signals
+        no focus change -- and a successful apply is exactly what destroys
+        them, by rewriting the manifest so the next poll's content differs.
+
+        Probe-verified, 3/3 deterministic runs: after the delegates are torn
+        down the counter reads 1 with nothing focused while the derived
+        binding reads false. The probe also ruled out FocusScope, whose
+        activeFocus strands true in the same way for the same reason.
+        """
+        if not panel_is_wired():
+            self.skipTest("Panel.qml is not wired to Service.qml yet")
+        source = self.strip_comments(read("Panel.qml"))
+
+        self.assertNotIn(
+            "paramFieldsFocused", source,
+            "The mirrored focus counter must be gone, not merely unused. "
+            "While it exists something will bind to it again.")
+        self.assertRegex(
+            source, r"blocked:\s*root\.paramFieldFocused\b",
+            "PanelKeyCatcher must bind `blocked` to the derived property.")
+        self.assertRegex(
+            source,
+            r"readonly property bool paramFieldFocused[\s\S]{0,400}?"
+            r"activeFocusItem[\s\S]{0,200}?isParamField",
+            "paramFieldFocused must read the window's real activeFocusItem "
+            "and identify our own fields by their marker property. Testing "
+            "the item against null is NOT enough: probe-verified 3/3, Qt "
+            "reassigns focus elsewhere rather than clearing it when a "
+            "focused delegate is destroyed.")
+        self.assertRegex(
+            source, r"property bool isParamField:\s*true",
+            "A parameter field must carry the marker the derived binding "
+            "looks for.")
+
+    def test_a_hidden_parameter_field_still_releases_focus(self):
+        """The one mechanism that must SURVIVE the rewrite.
+
+        It does not mirror Qt state, it changes it. Qt does not clear
+        activeFocus when an item is hidden -- probe-verified 3/3, both before
+        and after this rewrite -- so without this a field keeps focus while
+        invisible and the derived binding correctly, uselessly, reports a
+        focused field that the user cannot see or escape from. The editor
+        hides on its own whenever the server stops mid-edit.
+        """
         if not panel_is_wired():
             self.skipTest("Panel.qml is not wired to Service.qml yet")
         source = self.strip_comments(read("Panel.qml"))
         self.assertRegex(
             source,
-            r"Component\.onDestruction:\s*if\s*\(activeFocus\)\s*"
-            r"root\.paramFieldsFocused\s*=",
-            "A parameter field must give its focus count back when it is "
-            "DESTROYED, not only when it is hidden or blurred. The installed "
-            "Repeater rebuilds every delegate whenever the snapshot's content "
-            "differs, and a successful apply is exactly what makes it differ. "
-            "Without this the counter strands above zero with nothing "
-            "focused, and PanelKeyCatcher swallows r and esc for the rest of "
-            "the panel session -- the bug PR #6 shipped.")
+            r"onVisibleChanged:\s*if\s*\(!visible\s*&&\s*activeFocus\)\s*"
+            r"focus\s*=\s*false",
+            "A parameter field must release focus when it is hidden.")
 
 
 class TextFormatGuardTest(unittest.TestCase):

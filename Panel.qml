@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Window
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
@@ -47,22 +48,34 @@ Panel {
   readonly property var snap: service.snapshot
   readonly property string status: service.effectiveStatus
 
-  // Count of TextFields with active focus, not a bool: the parameter editor
-  // instantiates one field per applicable spec (up to two, kind-filtered by
-  // paramSpecsFor) and each one's onActiveFocusChanged fires independently
-  // on both edges. A bool set by
-  // whichever fires last is order-dependent by construction -- Tab from
-  // field 1 to field 2 fires both handlers, and if the loser's false-write
-  // lands after the gainer's true-write, the flag reads false while a field
-  // still holds focus. A counter that increments on focus gained and
-  // decrements on focus lost stays nonzero across the hand-off regardless
-  // of which of the two events lands last (it reads 2 transiently, then
-  // settles at 1, never touching 0). PanelKeyCatcher binds `blocked` to
-  // this being nonzero so j/k/h/l, Enter and Escape reach the focused field
-  // instead of the panel's own key handling -- see the header comment on
-  // PanelKeyCatcher and the three first-party panels (network, clock,
-  // weather) that already do this for their own inline editors.
-  property int paramFieldsFocused: 0
+  // Whether a parameter field holds focus, DERIVED from Qt rather than
+  // mirrored. PanelKeyCatcher binds `blocked` to this so j/k/h/l, Enter and
+  // Escape reach the focused field instead of the panel's own key handling
+  // -- see the header comment on PanelKeyCatcher and the three first-party
+  // panels (network, clock, weather) that do the same for their inline
+  // editors.
+  //
+  // This replaced a counter that mirrored Qt's focus state, which needed
+  // four compensating mechanisms and was still wrong: a delegate can lose
+  // focus by being DESTROYED, which signals no focus change, so the count
+  // stranded above zero with nothing focused and the catcher swallowed r and
+  // esc for the rest of the panel session. Traps #32 and #39 are the same
+  // lesson twice -- every mirror of Qt focus state on this branch has
+  // disagreed with Qt at least once.
+  //
+  // Two things this must NOT be, both ruled out by probe, 3/3 runs each:
+  // a null test on activeFocusItem (Qt reassigns focus elsewhere rather than
+  // clearing it, so it is rarely null), and a FocusScope's own activeFocus
+  // (it strands true after its focused child is destroyed, which is the
+  // counter's bug wearing a different hat).
+  readonly property bool paramFieldFocused: {
+    // root-qualified: an unqualified `Window` would not resolve here, and a
+    // readonly property on an intermediate item is invisible to nested
+    // delegates -- trap #37.
+    var window = root.Window.window
+    var item = window ? window.activeFocusItem : null
+    return !!(item && item.isParamField === true)
+  }
 
   // Which installed model has its editor expanded, by name. One at a time:
   // the list is height-capped and clips, so two open editors would mean
@@ -75,23 +88,6 @@ Panel {
       if (list[i].name === root.expandedModel) return list[i]
     return null
   }
-
-  // Guards against paramFieldsFocused drifting upward: collapsing the old
-  // row (choosing a different model, or none) tears down its TextFields
-  // without necessarily running their onActiveFocusChanged(false) first, so
-  // resetting here is what keeps the count from sticking above zero and
-  // leaving PanelKeyCatcher permanently blocked.
-  //
-  // This reset is belt-and-braces, not the primary mechanism. The field's own
-  // `onVisibleChanged` releases focus whenever the editor is hidden, which
-  // fires the decrement, and that covers paths this handler cannot see --
-  // notably the server stopping mid-edit, which hides the editor (its
-  // `visible` also gates on root.status) without expandedModel changing at
-  // all. Probe-verified on that exact path: focus a field, drop status to
-  // stopped, and the count lands at 0 with the catcher unblocked. Both are
-  // kept because the failure mode is a panel whose keyboard stops working,
-  // and the clamp below makes the overlap harmless.
-  onExpandedModelChanged: root.paramFieldsFocused = 0
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -202,7 +198,7 @@ Panel {
       // input -- otherwise lowercase j/k/h/l vanish into cursor movement,
       // Enter never reaches onEditingFinished, and Escape closes the whole
       // panel instead of just reverting the field.
-      blocked: root.paramFieldsFocused > 0
+      blocked: root.paramFieldFocused
       onCloseRequested: root.close()
       onTextKey: function (t) {
         if (t === "r" || t === "R") {
@@ -987,51 +983,23 @@ Panel {
 
                           // Qt does NOT clear activeFocus when an item is
                           // hidden -- verified by headless qml6 probe, three
-                          // deterministic runs. Without this, collapsing a row
-                          // while a field held focus left activeFocus stuck
-                          // true with no signal, so the counter below never
-                          // decremented; re-expanding then read
-                          // paramFieldsFocused === 0 while a field really did
-                          // have focus, and PanelKeyCatcher stole k/j/h/l,
-                          // Enter and r straight back -- the exact bug PR #6
-                          // shipped. Releasing focus here fires the -1.
+                          // deterministic runs, and re-verified 3/3 against
+                          // the derived binding that replaced the counter.
+                          // This is the one focus mechanism the rewrite kept,
+                          // because it changes Qt's state rather than
+                          // mirroring it: without it a field keeps focus while
+                          // invisible, and root.paramFieldFocused then
+                          // correctly reports a focused field the user can
+                          // neither see nor escape from. The editor hides on
+                          // its own whenever the server stops mid-edit, so
+                          // this is reachable without collapsing a row.
                           onVisibleChanged: if (!visible && activeFocus)
                                               focus = false
 
-                          // Clamped at zero: two fields handing focus over
-                          // directly fire their signals in either order, and
-                          // onExpandedModelChanged also resets to 0, so an
-                          // unclamped -= could strand the counter negative --
-                          // permanently below the `> 0` that blocks the key
-                          // catcher. Clamping fails toward blocking.
-                          onActiveFocusChanged: root.paramFieldsFocused =
-                            Math.max(0, root.paramFieldsFocused +
-                                        (activeFocus ? 1 : -1))
-
-                          // The third way a focused field stops holding focus,
-                          // and the one neither handler above can see: it is
-                          // DESTROYED. The installed Repeater's model is bound
-                          // to the snapshot, and QQuickRepeater compares the
-                          // converted value and returns early only while the
-                          // content is EQUAL -- an ordinary poll rebuilds
-                          // nothing, which is why typing survives. A poll whose
-                          // content differs tears down and rebuilds every
-                          // delegate, and this feature's own successful apply
-                          // is what makes it differ: a write rewrites the
-                          // manifest, so the next row differs in `parameters`
-                          // and `modifiedAt`. Destruction is not hiding and
-                          // signals no focus change, so without this the
-                          // counter stranded at 1 with nothing focused,
-                          // PanelKeyCatcher stayed blocked, and r and esc were
-                          // dead for the rest of the panel session -- the exact
-                          // bug PR #6 shipped, reintroduced on the happy path.
-                          // It ratcheted rather than self-healed: clicking the
-                          // field again took it to 2 and Escape back to 1,
-                          // never to 0, and only onExpandedModelChanged reset
-                          // it. Probe-verified 3/3 broken and 3/3 fixed.
-                          Component.onDestruction: if (activeFocus)
-                            root.paramFieldsFocused =
-                              Math.max(0, root.paramFieldsFocused - 1)
+                          // The marker root.paramFieldFocused looks for.
+                          // Identity, not state: nothing writes it, so there
+                          // is nothing here to fall out of step with Qt.
+                          property bool isParamField: true
 
                           // Records the edit as it is typed, and this is
                           // load-bearing rather than eager. `text` above is a
