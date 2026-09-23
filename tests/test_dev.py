@@ -452,6 +452,146 @@ esac
         self.assertGreater(self.call_count(), 1)
 
 
+class UpWaitsForShellTest(unittest.TestCase):
+    """Drives `up` against a PATH-shimmed shell that does not come back,
+    proving it notices instead of exiting 0 over a dead desktop.
+
+    `omarchy restart shell` kills the running instance and then launches a
+    replacement, and the launch can win that race: the new process finds the
+    old still alive and refuses, the old then exits on the IPC request it had
+    already been given, and nothing is left running. Observed twice on a live
+    desktop while working on headway's issue #3. `up` exited 0 and printed its
+    success lines anyway, and a clean exit leaves no coredump to find either.
+
+    The race is upstream in omarchy-restart-shell, a package-managed file this
+    repo must not edit, so what is tested here is the OUTCOME: `up` asks the
+    shell whether it is back, retries once, and fails clearly rather than
+    reporting success over nothing.
+
+    The `omarchy` stub's `restart shell` deliberately starts nothing, which is
+    exactly that failure. DEV_STATE_FIXTURE pins the registry answer so this
+    test drives only the shell wait.
+    """
+
+    OMARCHY_STUB = '''#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-} ${2:-}" in
+  "restart shell")
+    count=0
+    [[ -f "%(restarts)s" ]] && count="$(cat "%(restarts)s")"
+    echo "$((count + 1))" > "%(restarts)s"
+    ;;
+esac
+exit 0
+'''
+
+    # `shell ping` answers only from the Nth call onwards, so a test can make
+    # the shell come back late, or never.
+    OMARCHY_SHELL_STUB = '''#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-} ${2:-}" == "shell ping" ]]; then
+  count=0
+  [[ -f "%(pings)s" ]] && count="$(cat "%(pings)s")"
+  count=$((count + 1))
+  echo "$count" > "%(pings)s"
+  if (( count >= %(answers_at)d )); then echo ok; exit 0; fi
+  exit 1
+fi
+exit 0
+'''
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp(prefix="dev-test-shell-home-")
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.stub_dir = tempfile.mkdtemp(prefix="dev-test-shell-stub-")
+        self.addCleanup(shutil.rmtree, self.stub_dir, ignore_errors=True)
+        self.restarts = os.path.join(self.stub_dir, "restarts")
+        self.pings = os.path.join(self.stub_dir, "pings")
+
+        stub = os.path.join(self.stub_dir, "omarchy")
+        with open(stub, "w") as handle:
+            handle.write(self.OMARCHY_STUB % {"restarts": self.restarts})
+        os.chmod(stub, 0o755)
+
+    def write_shell_stub(self, answers_at):
+        stub = os.path.join(self.stub_dir, "omarchy-shell")
+        with open(stub, "w") as handle:
+            handle.write(self.OMARCHY_SHELL_STUB % {
+                "pings": self.pings, "answers_at": answers_at})
+        os.chmod(stub, 0o755)
+
+    def restart_count(self):
+        if not os.path.exists(self.restarts):
+            return 0
+        with open(self.restarts) as handle:
+            return int(handle.read().strip())
+
+    def ping_count(self):
+        if not os.path.exists(self.pings):
+            return 0
+        with open(self.pings) as handle:
+            return int(handle.read().strip())
+
+    def run_up(self):
+        merged = dict(os.environ)
+        merged["HOME"] = self.home
+        merged["PATH"] = self.stub_dir + os.pathsep + merged["PATH"]
+        merged["DEV_STATE_FIXTURE"] = "enabled"
+        merged["DEV_SHELL_TIMEOUT"] = "1"
+
+        # Same guard as UpWaitsForRegistrationTest: a failure here means this
+        # test would restart the live desktop shell.
+        which = subprocess.run(
+            ["bash", "-c", "command -v omarchy && command -v omarchy-shell"],
+            capture_output=True, env=merged)
+        self.assertEqual(which.returncode, 0, which.stderr.decode())
+        for path in which.stdout.decode().splitlines():
+            self.assertTrue(
+                path.startswith(self.stub_dir),
+                f"real omarchy binary reachable on PATH: {path}")
+
+        return subprocess.run(["bash", DEV, "up"], capture_output=True,
+                              timeout=60, cwd=ROOT, env=merged)
+
+    def test_one_restart_is_enough_when_the_shell_answers(self):
+        self.write_shell_stub(answers_at=1)
+        proc = self.run_up()
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(self.restart_count(), 1)
+
+    def test_it_waits_rather_than_trusting_the_restart_returned(self):
+        # The restart command returning tells you nothing: it returns before
+        # the replacement is answering, which is the whole bug.
+        self.write_shell_stub(answers_at=4)
+        proc = self.run_up()
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(self.restart_count(), 1,
+                         "answering inside the first window needs no retry")
+        # The assertion that matters. Exit 0 with one restart is ALSO what the
+        # unpatched script does, because it never asks -- checked by reverting
+        # bin/dev and watching this test still pass. Polling until the shell
+        # answers is the behaviour, so count the asking.
+        self.assertGreaterEqual(
+            self.ping_count(), 4,
+            "up did not poll the shell -- it trusted the restart's return")
+
+    def test_it_retries_once_when_the_shell_does_not_come_back(self):
+        # Past the first window (1s at 0.2s intervals), inside the second.
+        self.write_shell_stub(answers_at=7)
+        proc = self.run_up()
+        self.assertEqual(proc.returncode, 0, proc.stderr.decode())
+        self.assertEqual(self.restart_count(), 2, "one retry, not a loop")
+
+    def test_it_fails_naming_the_recovery_when_two_restarts_do_not_work(self):
+        self.write_shell_stub(answers_at=999999)
+        proc = self.run_up()
+        self.assertNotEqual(proc.returncode, 0,
+                            "a dead shell must not exit 0 with success lines")
+        self.assertIn("omarchy restart shell", proc.stderr.decode())
+        self.assertEqual(self.restart_count(), 2,
+                         "two attempts, then give up rather than thrash")
+
+
 class DownTest(unittest.TestCase):
     def out(self, state):
         return lines(run(["down", "--dry-run"], env={"DEV_STATE_FIXTURE": state}))
