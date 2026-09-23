@@ -473,13 +473,18 @@ class UpWaitsForShellTest(unittest.TestCase):
     test drives only the shell wait.
     """
 
+    # `restart shell` takes an exit code: omarchy-restart-shell reports
+    # "Omarchy shell did not become ready after restart" and exits non-zero
+    # when it loses its own race, and a stub that always exits 0 tests only
+    # the happy path of a command whose unhappy path is the entire point.
     OMARCHY_STUB = '''#!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 case "${1:-} ${2:-}" in
   "restart shell")
     count=0
     [[ -f "%(restarts)s" ]] && count="$(cat "%(restarts)s")"
     echo "$((count + 1))" > "%(restarts)s"
+    exit %(restart_rc)d
     ;;
 esac
 exit 0
@@ -508,9 +513,13 @@ exit 0
         self.restarts = os.path.join(self.stub_dir, "restarts")
         self.pings = os.path.join(self.stub_dir, "pings")
 
+        self.write_omarchy_stub()
+
+    def write_omarchy_stub(self, restart_rc=0):
         stub = os.path.join(self.stub_dir, "omarchy")
         with open(stub, "w") as handle:
-            handle.write(self.OMARCHY_STUB % {"restarts": self.restarts})
+            handle.write(self.OMARCHY_STUB % {
+                "restarts": self.restarts, "restart_rc": restart_rc})
         os.chmod(stub, 0o755)
 
     def write_shell_stub(self, answers_at):
@@ -581,6 +590,31 @@ exit 0
         proc = self.run_up()
         self.assertEqual(proc.returncode, 0, proc.stderr.decode())
         self.assertEqual(self.restart_count(), 2, "one retry, not a loop")
+
+    def test_a_failing_restart_command_does_not_abort_the_guard(self):
+        # The restart command exits non-zero when it loses its own race. Under
+        # `set -e` that aborted restart_shell at its first line -- BEFORE the
+        # wait and retry that exist for exactly that case -- so the guard never
+        # ran and the desktop was left with no shell. Measured on a live
+        # desktop while porting this fix: the journal showed the replacement
+        # refusing with "An instance of this configuration is already running"
+        # while bin/dev had already exited and printed nothing of its own.
+        self.write_omarchy_stub(restart_rc=1)
+        self.write_shell_stub(answers_at=4)
+        proc = self.run_up()
+        self.assertEqual(proc.returncode, 0,
+                         "a failing restart must not abort the guard\n"
+                         + proc.stderr.decode())
+        self.assertEqual(self.restart_count(), 1,
+                         "the shell answered, so no retry was needed")
+
+    def test_a_failing_restart_with_no_shell_still_fails_clearly(self):
+        self.write_omarchy_stub(restart_rc=1)
+        self.write_shell_stub(answers_at=999999)
+        proc = self.run_up()
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("omarchy restart shell", proc.stderr.decode())
+        self.assertEqual(self.restart_count(), 2)
 
     def test_it_fails_naming_the_recovery_when_two_restarts_do_not_work(self):
         self.write_shell_stub(answers_at=999999)
