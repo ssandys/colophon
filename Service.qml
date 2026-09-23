@@ -47,6 +47,20 @@ Item {
       root.configAttached = true
     }
     root.consumers = root.consumers + 1
+    // Only the FIRST consumer refreshes. Every surface attaches, so
+    // refreshing on each one would put back exactly the duplicate collection
+    // this singleton exists to remove.
+    //
+    // This replaces the `refresh()` that used to sit in Component.onCompleted,
+    // which worked while this file was instantiated -- property bindings are
+    // applied before onCompleted, so collectPath was set by then. A singleton
+    // is constructed the instant its type is first referenced, which is the
+    // `Service` in `Service.attach(...)`, so that call ran with collectPath
+    // still empty and spawned `python3 ""`. It was invisible here only because
+    // pollTimer carries triggeredOnStart and the real poll followed a moment
+    // later; galley has no triggeredOnStart and its lifecycle harness timed
+    // out on the same mistake.
+    if (root.consumers === 1) root.refresh()
   }
 
   function detach(options) {
@@ -501,6 +515,8 @@ Item {
   Component.onCompleted: {
     root.nowSec = Date.now() / 1000
     root.statusSinceSec = root.nowSec
-    root.refresh()
+    // No refresh() here: see attach(). At this point collectPath is still
+    // empty, because a singleton is constructed before its first caller has
+    // handed anything over.
   }
 }
