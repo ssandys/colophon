@@ -6,6 +6,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "."
 import "Model.js" as Model
 
 Panel {
@@ -45,8 +46,8 @@ Panel {
     return value
   }
 
-  readonly property var snap: service.snapshot
-  readonly property string status: service.effectiveStatus
+  readonly property var snap: Service.snapshot
+  readonly property string status: Service.effectiveStatus
 
   // Whether a parameter field holds focus, DERIVED from Qt rather than
   // mirrored. PanelKeyCatcher binds `blocked` to this so j/k/h/l, Enter and
@@ -92,18 +93,32 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  Service {
-    id: service
-    settings: root.settings
-    panelOpen: root.opened
-    collectPath: root.pathFromUrl(Qt.resolvedUrl("scripts/colophon_collect.py"))
+  // NOT instantiated: Service.qml is a singleton, so this widget registers
+  // interest in the one shared instance rather than owning its own. The bar
+  // makes a widget per bar surface and a surface per monitor, so an instance
+  // here meant a poll AND a `notify-send -u critical` per monitor -- one event
+  // raising two critical notifications on a two-monitor setup.
+  //
+  // wasOpen goes out with detach() because a surface destroyed while its panel
+  // is open would otherwise leave openPanels counting a panel that is gone.
+  Component.onCompleted: Service.attach({
+    settings: root.settings,
+    collectPath: root.pathFromUrl(Qt.resolvedUrl("scripts/colophon_collect.py")),
     actionPath: root.pathFromUrl(Qt.resolvedUrl("scripts/colophon_action.py"))
-  }
+  })
+  Component.onDestruction: Service.detach({ wasOpen: root.opened })
 
   onOpenedChanged: {
+    // FOLDED into the existing handler, not added beside it. QML rejects a
+    // duplicate handler on one component and the component then fails to
+    // instantiate with NOTHING in the journal -- which is exactly what
+    // happened on the first attempt at this change: the widget silently did
+    // not exist, so attach() never ran, consumers stayed 0, and the poll that
+    // this commit is meant to deduplicate simply never happened at all.
+    Service.setPanelOpen(!root.opened, root.opened)
     if (opened) {
-      service.actionError = ""
-      service.refresh()
+      Service.actionError = ""
+      Service.refresh()
     }
   }
 
@@ -138,14 +153,14 @@ Panel {
     // Style.bar.iconSlot, whose default is the same 27 this used to hardcode --
     // but the token honours a theme's icon-slot / icon-canvas / icon-font
     // overrides, which a literal silently ignored.
-    tooltipText: Model.tooltipText(root.snap, service.nowSec)
+    tooltipText: Model.tooltipText(root.snap, Service.nowSec)
     onPressed: function (which) {
       if (which === Qt.MiddleButton) {
         // Asymmetric on purpose: a start is harmless, a stop could kill a
         // running generation on a stray middle-click. Documented in the README.
-        if (Model.canStart(root.status, service.actionInProgress))
-          service.runAction("start", "", "")
-        else service.refresh()
+        if (Model.canStart(root.status, Service.actionInProgress))
+          Service.runAction("start", "", "")
+        else Service.refresh()
         return
       }
       if (root.opened) root.close()
@@ -202,8 +217,8 @@ Panel {
       onCloseRequested: root.close()
       onTextKey: function (t) {
         if (t === "r" || t === "R") {
-          service.actionError = ""
-          service.refresh()
+          Service.actionError = ""
+          Service.refresh()
         }
       }
 
@@ -265,10 +280,10 @@ Panel {
           Text {
             textFormat: Text.PlainText
             text: {
-              var label = Model.statusLabel(root.status, service.secondsInStatus)
+              var label = Model.statusLabel(root.status, Service.secondsInStatus)
               var pieces = [label]
               if (root.status === "running") {
-                var up = Model.uptimeSeconds(root.snap, service.nowSec)
+                var up = Model.uptimeSeconds(root.snap, Service.nowSec)
                 if (up !== null) pieces.push("up " + Model.formatDuration(up))
                 var memory = root.snap.unit ? root.snap.unit.memoryBytes : null
                 if (memory) pieces.push(Model.formatBytes(memory))
@@ -331,19 +346,19 @@ Panel {
             // The optimistic value when one is set, reality otherwise: the
             // knob throws the instant it is clicked rather than waiting a
             // poll. ToggleSwitch's own docs describe this pattern.
-            checked: service.optimisticBootState !== ""
-                     ? service.optimisticBootState === "enabled"
+            checked: Service.optimisticBootState !== ""
+                     ? Service.optimisticBootState === "enabled"
                      : (root.snap.unit
                         ? root.snap.unit.unitFileState === "enabled"
                         : false)
 
             // Swallows further clicks while a verb is in flight without
             // dropping hover or tooltips on a background refresh.
-            busy: service.actionInProgress !== ""
+            busy: Service.actionInProgress !== ""
 
             foreground: root.fg
 
-            onToggled: service.runAction(checked ? "disable" : "enable", "", "")
+            onToggled: Service.runAction(checked ? "disable" : "enable", "", "")
 
             // ToggleSwitch has no tooltipText property -- Button does, but this
             // is not a Button. PanelToolTip is the shell's drop-in for exactly
@@ -389,9 +404,9 @@ Panel {
             fontSize: Style.font.caption
             horizontalPadding: Style.space(6)
             verticalPadding: Style.space(2)
-            enabled: Model.canStart(root.status, service.actionInProgress)
+            enabled: Model.canStart(root.status, Service.actionInProgress)
             opacity: enabled ? 1.0 : 0.4
-            onClicked: service.runAction("start", "", "")
+            onClicked: Service.runAction("start", "", "")
           }
 
           Button {
@@ -405,9 +420,9 @@ Panel {
             fontSize: Style.font.caption
             horizontalPadding: Style.space(6)
             verticalPadding: Style.space(2)
-            enabled: Model.canStop(root.status, service.actionInProgress)
+            enabled: Model.canStop(root.status, Service.actionInProgress)
             opacity: enabled ? 1.0 : 0.4
-            onClicked: service.runAction("stop", "", "")
+            onClicked: Service.runAction("stop", "", "")
           }
 
           Button {
@@ -420,14 +435,14 @@ Panel {
             fontSize: Style.font.caption
             horizontalPadding: Style.space(6)
             verticalPadding: Style.space(2)
-            enabled: Model.canRestart(root.status, service.actionInProgress)
+            enabled: Model.canRestart(root.status, Service.actionInProgress)
             opacity: enabled ? 1.0 : 0.4
-            onClicked: service.runAction("restart", "", "")
+            onClicked: Service.runAction("restart", "", "")
           }
 
           Text {
             textFormat: Text.PlainText
-            visible: service.actionInProgress !== ""
+            visible: Service.actionInProgress !== ""
             text: "working…"
             color: root.dim
             font.family: root.fontFamily
@@ -443,7 +458,7 @@ Panel {
         Text {
           textFormat: Text.PlainText
           visible: text !== ""
-          text: service.actionError || service.collectorError
+          text: Service.actionError || Service.collectorError
           color: "#ef4444"
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -551,7 +566,7 @@ Panel {
                     visible: modelData.expiresAt !== null &&
                              modelData.expiresAt !== undefined
                     text: Model.formatCountdown(
-                      Number(modelData.expiresAt) - service.nowSec)
+                      Number(modelData.expiresAt) - Service.nowSec)
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -565,9 +580,9 @@ Panel {
                     fontSize: Style.font.caption
                     horizontalPadding: Style.space(6)
                     verticalPadding: Style.space(2)
-                    enabled: service.actionInProgress === ""
+                    enabled: Service.actionInProgress === ""
                     opacity: enabled ? 1.0 : 0.4
-                    onClicked: service.runAction("unload", modelData.name,
+                    onClicked: Service.runAction("unload", modelData.name,
                                                  modelData.kind)
                   }
                 }
@@ -596,7 +611,7 @@ Panel {
           id: installedSection
           Layout.fillWidth: true
           spacing: Style.space(2)
-          visible: service.showInstalledModels
+          visible: Service.showInstalledModels
 
           RowLayout {
             Layout.fillWidth: true
@@ -723,11 +738,11 @@ Panel {
                       fontSize: Style.font.caption
                       horizontalPadding: Style.space(6)
                       verticalPadding: Style.space(2)
-                      enabled: service.actionInProgress === "" &&
+                      enabled: Service.actionInProgress === "" &&
                                root.status !== "missing" &&
                                root.status !== "foreign"
                       opacity: enabled ? 1.0 : 0.4
-                      onClicked: service.runAction("warm", modelData.name,
+                      onClicked: Service.runAction("warm", modelData.name,
                                                    modelData.kind)
 
                       // Same idiom as the bar-glyph badge in the BarIconButton
@@ -758,7 +773,7 @@ Panel {
 
                         Text {
                           textFormat: Text.PlainText
-                          text: service.actionInProgress === "warm:" + modelData.name
+                          text: Service.actionInProgress === "warm:" + modelData.name
                             ? "warming…" : Model.formatBytes(modelData.sizeBytes)
                           color: root.dim
                           font.family: root.fontFamily
@@ -955,7 +970,7 @@ Panel {
                           id: paramField
                           readonly property string paramKey: specRow.spec.key
 
-                          text: service.paramEditText(root.expandedEntry, paramKey)
+                          text: Service.paramEditText(root.expandedEntry, paramKey)
                           // An unset field is the MAIN case, not an edge
                           // case -- num_ctx is blank on every generative
                           // model in the owner's real store -- so the valid
@@ -1018,7 +1033,7 @@ Panel {
                           //
                           // textEdited fires only for user edits, never for
                           // programmatic ones, so this cannot recurse.
-                          onTextEdited: service.setParamEdit(root.expandedModel,
+                          onTextEdited: Service.setParamEdit(root.expandedModel,
                                                              paramKey, text)
 
                           onEditingFinished: {
@@ -1028,7 +1043,7 @@ Panel {
                               // can never offer to send it. Clearing the edit
                               // is the revert -- the live binding then
                               // resolves back to what the model declares.
-                              service.clearParamEdit(root.expandedModel,
+                              Service.clearParamEdit(root.expandedModel,
                                                      paramKey)
                               return
                             }
@@ -1039,7 +1054,7 @@ Panel {
                             // the display kept the typed 5 while the pending
                             // edit was 2, and apply silently sent the number
                             // nobody saw.
-                            service.setParamEdit(root.expandedModel, paramKey,
+                            Service.setParamEdit(root.expandedModel, paramKey,
                                                  String(parsed))
                           }
 
@@ -1059,7 +1074,7 @@ Panel {
                             // so the binding lives for the field's whole life
                             // and reverting is purely a matter of removing
                             // what it resolves through.
-                            service.clearParamEdit(root.expandedModel, paramKey)
+                            Service.clearParamEdit(root.expandedModel, paramKey)
                             focus = false
                             event.accepted = true
                           }
@@ -1100,10 +1115,10 @@ Panel {
                       fontSize: Style.font.caption
                       horizontalPadding: Style.space(6)
                       verticalPadding: Style.space(2)
-                      enabled: service.paramDirty(root.expandedEntry) &&
-                               service.actionInProgress === ""
+                      enabled: Service.paramDirty(root.expandedEntry) &&
+                               Service.actionInProgress === ""
                       opacity: enabled ? 1.0 : 0.4
-                      onClicked: service.commitParams(root.expandedEntry)
+                      onClicked: Service.commitParams(root.expandedEntry)
                     }
                   }
                 }

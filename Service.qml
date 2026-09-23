@@ -1,3 +1,4 @@
+pragma Singleton
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -13,12 +14,53 @@ import "Model.js" as Model
 Item {
   id: root
 
-  // Injected by Panel.qml. Ui/Panel.qml declares `settings`; this Item does
-  // not, so the values must be passed in rather than read from here.
+  // Handed over by Panel.qml through attach(). Ui/Panel.qml declares
+  // `settings`; this Item does not, and as a SINGLETON it cannot take a bound
+  // property from a caller either -- there is no caller to bind to.
   property var settings: ({})
   property string collectPath: ""
   property string actionPath: ""
-  property bool panelOpen: false
+
+  // HOW MANY WIDGETS ARE ALIVE, not how many monitors exist. The bar makes a
+  // widget per bar surface and a surface per monitor, so before this file was
+  // a singleton every Timer, every Process and every notify() in it ran once
+  // per monitor -- including the ollama poll and, worse, `notify-send -u
+  // critical`, which fired twice on a two-monitor setup for one event.
+  //
+  // Clamped at zero on the way down. bin/dev reloads the plugin in place, and
+  // a reload that recreated widgets without destroying them would otherwise
+  // climb this forever and poll for the life of the shell.
+  property int consumers: 0
+  // Set by the first attach(), so a later surface handing over the same paths
+  // does not churn bound properties every time a monitor is plugged in.
+  property bool configAttached: false
+  // How many panels are open, not whether THIS one is: with several surfaces,
+  // "open" means any of them, and the faster interval applies while any is.
+  property int openPanels: 0
+  readonly property bool shouldRun: root.consumers > 0
+
+  function attach(options) {
+    if (options && !root.configAttached) {
+      if (options.settings) root.settings = options.settings
+      if (options.collectPath) root.collectPath = options.collectPath
+      if (options.actionPath) root.actionPath = options.actionPath
+      root.configAttached = true
+    }
+    root.consumers = root.consumers + 1
+  }
+
+  function detach(options) {
+    if (options && options.wasOpen) root.setPanelOpen(true, false)
+    root.consumers = root.consumers > 0 ? root.consumers - 1 : 0
+  }
+
+  // A DELTA, not an absolute: an absolute would let the last panel to change
+  // state speak for every other panel.
+  function setPanelOpen(wasOpen, isOpen) {
+    if (wasOpen === isOpen) return
+    var next = root.openPanels + (isOpen ? 1 : -1)
+    root.openPanels = next > 0 ? next : 0
+  }
 
   // emptySnapshot(), not the EMPTY_SNAPSHOT constant: Model.js deliberately
   // hands out a deep clone so a caller cannot corrupt the shared default for
@@ -311,11 +353,11 @@ Item {
 
   Timer {
     id: pollTimer
-    running: true
+    running: root.shouldRun
     repeat: true
     triggeredOnStart: true
     interval: {
-      if (root.panelOpen) return root.openInterval * 1000
+      if (root.openPanels > 0) return root.openInterval * 1000
       var status = root.status
       if (status === "stopped" || status === "failed" || status === "missing")
         return root.idleInterval * 1000
@@ -377,8 +419,11 @@ Item {
     triggeredOnStart: true
     // Only while there is something to re-render: an open panel, or a
     // transition whose 15-second relabel is counting.
-    running: root.panelOpen || root.status === "starting" ||
-             root.status === "stopping"
+    // shouldRun as well: with no widget alive there is nothing to re-render,
+    // and a transition left mid-flight would otherwise tick forever.
+    running: root.shouldRun &&
+             (root.openPanels > 0 || root.status === "starting" ||
+              root.status === "stopping")
     onTriggered: root.nowSec = Date.now() / 1000
   }
 
