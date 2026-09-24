@@ -32,6 +32,10 @@ import Quickshell
 import "."
 
 ShellRoot {
+  id: root
+  property int idleMs: -1
+  property int runningMs: -1
+
   Component.onCompleted: {
     %(script)s
   }
@@ -122,6 +126,71 @@ class SettingsDeliveryTest(unittest.TestCase):
             "Service.idleInterval === 45 && Service.consumers === 2")
         self.assertEqual(proc.returncode, 0,
                          "a later attach wiped the settings\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_clearing_a_setting_puts_its_default_back(self):
+        # configure() REPLACES the settings object; it does not merge into
+        # it. A merge would keep a cleared key's old value forever -- the
+        # settings UI drops a key back to the manifest default by leaving it
+        # out.
+        proc = self._run(
+            "Service.attach({});"
+            " Service.configure({ pollIntervalIdleSec: 45,"
+            " notifyServiceDied: false });"
+            " Service.configure({})",
+            "Service.idleInterval === 30 && Service.notifyServiceDied === true")
+        self.assertEqual(proc.returncode, 0,
+                         "a cleared setting kept its old value\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_settings_naming_only_some_keys_leave_the_rest_at_defaults(self):
+        proc = self._run(
+            "Service.attach({}); Service.configure({ keepAliveMinutes: 9 })",
+            "Service.keepAliveMinutes === 9 && Service.idleInterval === 30"
+            " && Service.runningInterval === 10"
+            " && Service.apiBase === 'http://127.0.0.1:11434'")
+        self.assertEqual(proc.returncode, 0,
+                         "an unnamed key lost its default\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_configure_with_nothing_falls_back_to_defaults(self):
+        proc = self._run(
+            "Service.attach({});"
+            " Service.configure({ pollIntervalIdleSec: 45 });"
+            " Service.configure(null);"
+            " Service.configure({ pollIntervalIdleSec: 46 });"
+            " Service.configure(undefined)",
+            "Service.idleInterval === 30")
+        self.assertEqual(proc.returncode, 0,
+                         "configure(null/undefined) misbehaved\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_the_poll_timer_runs_on_the_configured_intervals(self):
+        # pollIntervalMs aliases pollTimer.interval itself, so this is the
+        # schedule the timer is really on. With PATH empty the collector
+        # cannot run and the service starts stopped, so the idle interval
+        # applies first. Nothing here can make ollama run, so `status` is set
+        # directly and read back in the same tick, before a failed collection
+        # could change it; the open panel then overrides both.
+        proc = self._run(
+            "Service.attach({});"
+            " Service.configure({ pollIntervalIdleSec: 45,"
+            " pollIntervalRunningSec: 25, pollIntervalOpenSec: 7 });"
+            " root.idleMs = Service.pollIntervalMs;"
+            " Service.status = 'running';"
+            " root.runningMs = Service.pollIntervalMs;"
+            " Service.setPanelOpen(false, true)",
+            "root.idleMs === 45000 && root.runningMs === 25000"
+            " && Service.pollIntervalMs === 7000")
+        self.assertEqual(proc.returncode, 0,
+                         "the timer did not follow the settings\n%s%s"
+                         % (proc.stdout, proc.stderr))
+
+    def test_with_no_settings_the_poll_timer_runs_on_the_default(self):
+        proc = self._run("Service.attach({})",
+                         "Service.pollIntervalMs === 30000")
+        self.assertEqual(proc.returncode, 0,
+                         "the default schedule is wrong\n%s%s"
                          % (proc.stdout, proc.stderr))
 
 

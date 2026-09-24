@@ -164,6 +164,11 @@ Item {
   readonly property string apiBase: setting("apiBase", "http://127.0.0.1:11434")
   readonly property bool showInstalledModels: setting("showInstalledModels", true)
   readonly property bool notifyServiceDied: setting("notifyServiceDied", true)
+  // The poll timer's LIVE interval, read-only, for
+  // tests/test_service_lifecycle.py: the intervals above are only numbers
+  // until pollTimer's binding turns them into a schedule, and an alias reads
+  // the timer itself rather than a copy of its formula that could drift.
+  readonly property alias pollIntervalMs: pollTimer.interval
 
   function refresh(fromTimer) {
     // A user-initiated refresh arriving mid-flight is coalesced rather than

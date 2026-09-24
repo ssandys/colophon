@@ -246,6 +246,25 @@ class SettingsDefaultTest(unittest.TestCase):
                 else:
                     self.assertEqual(literal.strip('"'), expected)
 
+    def test_every_setting_the_service_reads_is_declared_in_the_manifest(self):
+        # The direction the test above cannot see. A key read here but missing
+        # from the manifest has no default the host knows about and no schema
+        # entry, so the settings UI never offers it: the widget just uses its
+        # fallback forever, and a one-letter typo on either side looks exactly
+        # the same. Comments are stripped (where `//` starts the line or
+        # follows whitespace, so the apiBase URL survives) so prose that names
+        # a key does not count as reading it.
+        source = re.sub(r"(^|\s)//.*", r"\1", read("Service.qml"), flags=re.M)
+        widget = load_manifest()["barWidget"]
+        schema_keys = [entry["key"] for entry in widget["schema"]]
+        keys = re.findall(r'setting\(\s*"([A-Za-z]+)"', source)
+        self.assertTrue(keys, "found no setting() reads -- has the accessor "
+                              "been renamed?")
+        for key in keys:
+            with self.subTest(key=key):
+                self.assertIn(key, widget["defaults"])
+                self.assertIn(key, schema_keys)
+
 
 class KindRoutingTest(unittest.TestCase):
     def test_the_embedding_family_list_exists_only_in_python(self):
