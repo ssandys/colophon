@@ -14,9 +14,10 @@ import "Model.js" as Model
 Item {
   id: root
 
-  // Handed over by Panel.qml through attach(). Ui/Panel.qml declares
-  // `settings`; this Item does not, and as a SINGLETON it cannot take a bound
-  // property from a caller either -- there is no caller to bind to.
+  // Handed over by Panel.qml through configure(), on every change -- NOT
+  // through attach(). Ui/Panel.qml declares `settings`; this Item does not,
+  // and as a SINGLETON it cannot take a bound property from a caller either --
+  // there is no caller to bind to.
   property var settings: ({})
   property string collectPath: ""
   property string actionPath: ""
@@ -33,6 +34,8 @@ Item {
   property int consumers: 0
   // Set by the first attach(), so a later surface handing over the same paths
   // does not churn bound properties every time a monitor is plugged in.
+  // Paths only: they are fixed for the life of the plugin. Settings are not,
+  // and latching them here was #19 -- see configure().
   property bool configAttached: false
   // How many panels are open, not whether THIS one is: with several surfaces,
   // "open" means any of them, and the faster interval applies while any is.
@@ -41,7 +44,6 @@ Item {
 
   function attach(options) {
     if (options && !root.configAttached) {
-      if (options.settings) root.settings = options.settings
       if (options.collectPath) root.collectPath = options.collectPath
       if (options.actionPath) root.actionPath = options.actionPath
       root.configAttached = true
@@ -61,6 +63,16 @@ Item {
     // later; galley has no triggeredOnStart and its lifecycle harness timed
     // out on the same mistake.
     if (root.consumers === 1) root.refresh()
+  }
+
+  // Every change, from every surface; the latest wins. The widget calls this
+  // from onSettingsChanged because the bar injects `settings` in its Loader's
+  // onLoaded, AFTER the widget's Component.onCompleted has already attached --
+  // so whatever attach() saw was Ui/Panel.qml's empty default. Latching that
+  // (#19) silently put every setting back to its default for good, and the
+  // settings UI's later edits, each a new object, were ignored as well.
+  function configure(settings) {
+    root.settings = settings ? settings : ({})
   }
 
   function detach(options) {
@@ -519,4 +531,5 @@ Item {
     // empty, because a singleton is constructed before its first caller has
     // handed anything over.
   }
+
 }

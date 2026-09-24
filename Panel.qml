@@ -102,11 +102,13 @@ Panel {
   // wasOpen goes out with detach() because a surface destroyed while its panel
   // is open would otherwise leave openPanels counting a panel that is gone.
   Component.onCompleted: Service.attach({
-    settings: root.settings,
     collectPath: root.pathFromUrl(Qt.resolvedUrl("scripts/colophon_collect.py")),
     actionPath: root.pathFromUrl(Qt.resolvedUrl("scripts/colophon_action.py"))
   })
   Component.onDestruction: Service.detach({ wasOpen: root.opened })
+  // Settings go over on every change rather than with attach(): the bar sets
+  // them from its Loader's onLoaded, after onCompleted above has run (#19).
+  onSettingsChanged: Service.configure(root.settings)
 
   onOpenedChanged: {
     // FOLDED into the existing handler, not added beside it. QML rejects a
