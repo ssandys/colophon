@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "."
 import "Model.js" as Model
@@ -35,7 +36,7 @@ Panel {
   // 92161f0 (omarchy-plugin-marketplace#3413).
 
   readonly property string barIcon: Model.BAR_GLYPH
-  readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
+  readonly property color fg: root.bar ? root.bar.foreground : Commons.Color.foreground
   readonly property color dim: Qt.darker(fg, 1.45)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : "JetBrainsMono Nerd Font"
 
@@ -174,8 +175,8 @@ Panel {
       width: Math.max(9, button.fontSize * 0.85)
       height: width
       radius: width / 2
-      color: Color.accent
-      borderSpec: Border.flat(Color.background, 1)
+      color: Commons.Color.accent
+      borderSpec: Border.flat(Commons.Color.background, 1)
       anchors.horizontalCenter: parent.horizontalCenter
       // glyphPaintedWidth, not labelWidth: BarIconButton sets labelVisible to
       // false, so labelWidth is 0 there and the badge would collapse onto the
@@ -189,7 +190,7 @@ Panel {
         id: badgeLabel
         anchors.centerIn: parent
         text: Model.badgeText(root.snap)
-        color: Color.background
+        color: Commons.Color.background
         font.family: root.fontFamily
         font.bold: true
         font.pixelSize: Math.max(6, parent.height * 0.66)
